@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GPS Multi-Sensor Tracker</title>
+  <link rel="stylesheet" href="https://unpkg.com/@patternfly/patternfly@5.3.1/patternfly.min.css" />
+  <link rel="stylesheet" href="https://unpkg.com/@patternfly/patternfly@5.3.1/patternfly-addons.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: #1b1d21;
+      font-family: RedHatText, Overpass, overpass, helvetica, arial, sans-serif;
+      color: #e8eaed;
+    }
+
+    .page-wrapper {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      min-height: 600px;
+      overflow: hidden;
+    }
+
+    /* ── Masthead ── */
+    .masthead {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      height: 48px;
+      background: #1b1d21;
+      border-bottom: 1px solid #3c3f42;
+      flex-shrink: 0;
+    }
+
+    .masthead__brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .masthead__title {
+      font-size: 15px;
+      font-weight: 600;
+      color: #e8eaed;
+    }
+
+    .masthead__right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .sensor-count-badge {
+      font-family: monospace;
+      font-size: 11px;
+      background: #2a2d33;
+      border: 1px solid #3c3f42;
+      border-radius: 20px;
+      padding: 2px 10px;
+      color: #a7a9ac;
+    }
+
+    /* ── Main 3-column layout ── */
+    .main-content {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Sensor list panel (left) ── */
+    .sensor-list-panel {
+      width: 220px;
+      flex-shrink: 0;
+      background: #212427;
+      border-right: 1px solid #3c3f42;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      padding: 10px 14px;
+      border-bottom: 1px solid #3c3f42;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: #a7a9ac;
+      flex-shrink: 0;
+    }
+
+    .sensor-items {
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    .sensor-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      cursor: pointer;
+      border-bottom: 1px solid #2a2d33;
+      border-left: 3px solid transparent;
+      transition: background .12s, border-color .12s;
+    }
+
+    .sensor-item:hover {
+      background: #2a2d33;
+    }
+
+    .sensor-item.active {
+      background: #1f2937;
+      border-left-color: var(--sensor-color, #06c);
+    }
+
+    .sensor-item__dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background: var(--sensor-color, #06c);
+    }
+
+    .sensor-item__dot.pulsing {
+      animation: sensorpulse 1.6s ease-in-out infinite;
+    }
+
+    @keyframes sensorpulse {
+      0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--sensor-color) 50%, transparent); }
+      50%       { box-shadow: 0 0 0 4px color-mix(in srgb, var(--sensor-color) 0%, transparent); }
+    }
+
+    .sensor-item__info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .sensor-item__name {
+      font-size: 13px;
+      font-weight: 500;
+      color: #e8eaed;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .sensor-item__sub {
+      font-family: monospace;
+      font-size: 10px;
+      color: #6b7280;
+      margin-top: 1px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .sensor-item__status {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .sensor-item__status.live   { background: #3e8635; animation: livepulse 1.4s ease-in-out infinite; }
+    .sensor-item__status.paused { background: #f0ab00; }
+
+    @keyframes livepulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: .4; }
+    }
+
+    /* ── Map ── */
+    #map {
+      flex: 1;
+      min-width: 0;
+      background: #1a1e26;
+    }
+
+    /* ── Detail sidebar (right) ── */
+    .detail-sidebar {
+      width: 290px;
+      flex-shrink: 0;
+      background: #212427;
+      border-left: 1px solid #3c3f42;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    .detail-header {
+      padding: 10px 14px;
+      border-bottom: 1px solid #3c3f42;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .detail-header__color-bar {
+      width: 4px;
+      height: 28px;
+      border-radius: 2px;
+      background: var(--selected-color, #06c);
+      flex-shrink: 0;
+    }
+
+    .detail-header__name {
+      font-size: 14px;
+      font-weight: 600;
+      color: #e8eaed;
+    }
+
+    .detail-header__id {
+      font-family: monospace;
+      font-size: 10px;
+      color: #6b7280;
+    }
+
+    .sidebar-section {
+      padding: 14px;
+      border-bottom: 1px solid #3c3f42;
+    }
+
+    .section-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: #a7a9ac;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    /* PF description list dark */
+    .pf-v5-c-description-list {
+      --pf-v5-c-description-list__term--Color: #a7a9ac;
+      --pf-v5-c-description-list__description--Color: #e8eaed;
+    }
+    .pf-v5-c-description-list__term,
+    .pf-v5-c-description-list__description { font-size: 13px; }
+
+    .mono {
+      font-family: RedHatMono, monospace;
+      font-size: 13px;
+    }
+
+    /* Stat grid */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+    }
+
+    .stat-card {
+      background: #2a2d33;
+      border: 1px solid #3c3f42;
+      border-radius: 4px;
+      padding: 9px 11px;
+    }
+
+    .stat-card__value {
+      font-family: monospace;
+      font-size: 17px;
+      font-weight: 600;
+      color: #e8eaed;
+    }
+
+    .stat-card__label {
+      font-size: 10px;
+      color: #a7a9ac;
+      margin-top: 2px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+
+    /* History */
+    .history-list {
+      max-height: 160px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .history-item {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 4px 7px;
+      background: #2a2d33;
+      border: 1px solid #3c3f42;
+      border-radius: 3px;
+      animation: slideIn .18s ease;
+    }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(-3px); }
+      to   { opacity: 1; transform: none; }
+    }
+
+    .history-item__index { font-family: monospace; font-size: 10px; color: #6b7280; min-width: 24px; }
+    .history-item__coords { font-family: monospace; font-size: 10px; color: #e8eaed; flex: 1; }
+    .history-item__time   { font-family: monospace; font-size: 10px; color: #6b7280; }
+
+    /* Alert */
+    .speed-alert {
+      display: none;
+      margin-bottom: 0;
+    }
+
+    /* Footer */
+    .footer-bar {
+      flex-shrink: 0;
+      padding: 8px 16px;
+      background: #1b1d21;
+      border-top: 1px solid #3c3f42;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .footer-bar__text {
+      font-size: 12px;
+      color: #a7a9ac;
+      font-family: monospace;
+    }
+
+    /* PF button dark overrides */
+    .pf-v5-c-button.pf-m-secondary {
+      --pf-v5-c-button--m-secondary--Color: #e8eaed;
+      --pf-v5-c-button--m-secondary--BorderColor: #3c3f42;
+      --pf-v5-c-button--m-secondary--hover--Color: #e8eaed;
+      --pf-v5-c-button--m-secondary--hover--BackgroundColor: #2a2d33;
+    }
+
+    /* No-selection placeholder */
+    .no-selection {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      color: #6b7280;
+      padding: 32px;
+      text-align: center;
+    }
+
+    .no-selection svg { opacity: .3; }
+    .no-selection p { font-size: 13px; margin: 0; }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #3c3f42; border-radius: 2px; }
+  </style>
+</head>
+<body>
+<div class="page-wrapper">
+
+  <!-- ── Masthead ── -->
+  <header class="masthead">
+    <div class="masthead__brand">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"/>
+        <line x1="3" y1="3" x2="9" y2="9"/><line x1="15" y1="15" x2="21" y2="21"/>
+        <line x1="3" y1="21" x2="9" y2="15"/><line x1="15" y1="9" x2="21" y2="3"/>
+        <line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/>
+        <line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/>
+      </svg>
+      <span class="masthead__title">GPS Multi-Sensor Tracker</span>
+    </div>
+    <div class="masthead__right">
+      <span class="sensor-count-badge" id="sensorCountBadge">4 sensors active</span>
+      <div style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;">
+        <div style="width:7px;height:7px;border-radius:50%;background:#3e8635;animation:livepulse 1.4s ease-in-out infinite;"></div>
+        <span style="color:#3e8635;">LIVE</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── Main ── -->
+  <div class="main-content">
+
+    <!-- Left: sensor list -->
+    <div class="sensor-list-panel">
+      <div class="panel-header">Sensors</div>
+      <div class="sensor-items" id="sensorListEl"></div>
+    </div>
+
+    <!-- Map -->
+    <div id="map"></div>
+
+    <!-- Right: detail sidebar -->
+    <aside class="detail-sidebar" id="detailSidebar">
+      <div id="noSelection" class="no-selection">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8" stroke-dasharray="4 2"/>
+        </svg>
+        <p>Select a sensor from the list<br/>to view its details</p>
+      </div>
+      <div id="detailContent" style="display:none; flex-direction:column; flex:1;">
+
+        <!-- Detail header -->
+        <div class="detail-header" id="detailHeader">
+          <div class="detail-header__color-bar" id="detailColorBar"></div>
+          <div>
+            <div class="detail-header__name" id="detailName">—</div>
+            <div class="detail-header__id" id="detailId">—</div>
+          </div>
+        </div>
+
+        <!-- Position -->
+        <div class="sidebar-section">
+          <div class="section-title">Position</div>
+          <dl class="pf-v5-c-description-list pf-m-compact"
+              style="--pf-v5-c-description-list--ColumnGap:0;--pf-v5-c-description-list--RowGap:6px;">
+            <div class="pf-v5-c-description-list__group">
+              <dt class="pf-v5-c-description-list__term"><span class="pf-v5-c-description-list__text">Latitude</span></dt>
+              <dd class="pf-v5-c-description-list__description"><span class="pf-v5-c-description-list__text mono" id="dLat">—</span></dd>
+            </div>
+            <div class="pf-v5-c-description-list__group">
+              <dt class="pf-v5-c-description-list__term"><span class="pf-v5-c-description-list__text">Longitude</span></dt>
+              <dd class="pf-v5-c-description-list__description"><span class="pf-v5-c-description-list__text mono" id="dLng">—</span></dd>
+            </div>
+            <div class="pf-v5-c-description-list__group">
+              <dt class="pf-v5-c-description-list__term"><span class="pf-v5-c-description-list__text">Altitude</span></dt>
+              <dd class="pf-v5-c-description-list__description"><span class="pf-v5-c-description-list__text mono" id="dAlt">—</span></dd>
+            </div>
+            <div class="pf-v5-c-description-list__group">
+              <dt class="pf-v5-c-description-list__term"><span class="pf-v5-c-description-list__text">Accuracy</span></dt>
+              <dd class="pf-v5-c-description-list__description"><span class="pf-v5-c-description-list__text mono" id="dAcc">—</span></dd>
+            </div>
+          </dl>
+        </div>
+
+        <!-- Motion -->
+        <div class="sidebar-section">
+          <div class="section-title">Motion</div>
+          <div class="stat-grid">
+            <div class="stat-card"><div class="stat-card__value" id="dSpeed">—</div><div class="stat-card__label">Speed km/h</div></div>
+            <div class="stat-card"><div class="stat-card__value" id="dHeading">—</div><div class="stat-card__label">Heading</div></div>
+            <div class="stat-card"><div class="stat-card__value" id="dDistance">0</div><div class="stat-card__label">Distance m</div></div>
+            <div class="stat-card"><div class="stat-card__value" id="dUpdates">0</div><div class="stat-card__label">Updates</div></div>
+          </div>
+        </div>
+
+        <!-- Speed alert -->
+        <div class="sidebar-section speed-alert" id="speedAlert">
+          <div class="pf-v5-c-alert pf-m-warning pf-m-inline" style="--pf-v5-c-alert--BackgroundColor:#2a2d33;">
+            <div class="pf-v5-c-alert__icon">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f0ab00" stroke-width="2">
+                <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+              </svg>
+            </div>
+            <p class="pf-v5-c-alert__title" id="speedAlertText" style="font-size:12px;color:#f0ab00;"></p>
+          </div>
+        </div>
+
+        <!-- History -->
+        <div class="sidebar-section" style="flex:1;">
+          <div class="section-title">
+            <span>History</span>
+            <span id="dHistCount" style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;">0 pts</span>
+          </div>
+          <div class="history-list" id="dHistoryList"></div>
+        </div>
+
+      </div>
+    </aside>
+
+  </div>
+
+  <!-- ── Footer ── -->
+  <div class="footer-bar">
+    <div class="footer-bar__text" id="footerText">Tracking 4 sensors…</div>
+    <div style="display:flex;gap:8px;">
+      <button class="pf-v5-c-button pf-m-secondary pf-m-sm" id="btnToggleSelected" onclick="toggleSelected()" disabled>Pause Selected</button>
+      <button class="pf-v5-c-button pf-m-secondary pf-m-sm" id="btnClearSelected" onclick="clearSelectedTrail()" disabled>Clear Trail</button>
+      <button class="pf-v5-c-button pf-m-primary pf-m-sm" onclick="centerSelected()">Center Map</button>
+    </div>
+  </div>
+
+</div><!-- end page-wrapper -->
+
+<script>
+// ── Sensor definitions ─────────────────────────────────────────────────────
+const SENSOR_CONFIGS = [
+  { id: 'SNS-01', name: 'Alpha Unit',   color: '#06c',    startLat: 38.8977, startLng: -77.0365, startHeading: 45  },
+  { id: 'SNS-02', name: 'Bravo Unit',   color: '#c9190b', startLat: 38.9072, startLng: -77.0490, startHeading: 140 },
+  { id: 'SNS-03', name: 'Charlie Unit', color: '#f0ab00', startLat: 38.8890, startLng: -77.0200, startHeading: 220 },
+  { id: 'SNS-04', name: 'Delta Unit',   color: '#3e8635', startLat: 38.9150, startLng: -77.0300, startHeading: 300 },
+];
+
+// ── Map setup ──────────────────────────────────────────────────────────────
+const map = L.map('map', { zoomControl: true, attributionControl: false });
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
+map.setView([38.9030, -77.0350], 13);
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function haversine(la, lo, la2, lo2) {
+  const R = 6371000, dLat = (la2 - la) * Math.PI / 180, dLng = (lo2 - lo) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(la*Math.PI/180)*Math.cos(la2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+function compassLabel(h) { return ['N','NE','E','SE','S','SW','W','NW'][Math.round(h/45)%8]; }
+function fmtTime(d) { return d.toTimeString().slice(0,8); }
+function hexToRgb(hex) {
+  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return `${r},${g},${b}`;
+}
+
+// ── Build sensor state objects ─────────────────────────────────────────────
+const sensors = {};
+
+SENSOR_CONFIGS.forEach(cfg => {
+  const markerIcon = L.divIcon({
+    html: `<div style="width:13px;height:13px;border-radius:50%;background:${cfg.color};border:2px solid #fff;box-shadow:0 0 8px rgba(${hexToRgb(cfg.color)},.7);"></div>`,
+    className: '', iconSize: [13,13], iconAnchor: [6,6]
+  });
+
+  sensors[cfg.id] = {
+    ...cfg,
+    lat: cfg.startLat, lng: cfg.startLng,
+    speed: 0, heading: cfg.startHeading,
+    alt: 20, acc: 3,
+    totalDist: 0, updateCount: 0,
+    isTracking: true,
+    trailPoints: [], trailDots: [], polyline: null,
+    marker: null, markerIcon,
+    history: [],         // { lat, lng, time }
+  };
+});
+
+// ── Selected sensor ────────────────────────────────────────────────────────
+let selectedId = null;
+
+function selectSensor(id) {
+  selectedId = id;
+
+  // Update list highlighting
+  document.querySelectorAll('.sensor-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.id === id);
+  });
+
+  const s = sensors[id];
+  document.getElementById('noSelection').style.display = 'none';
+  const content = document.getElementById('detailContent');
+  content.style.display = 'flex';
+
+  // Header
+  document.getElementById('detailColorBar').style.background = s.color;
+  document.getElementById('detailName').textContent = s.name;
+  document.getElementById('detailId').textContent = s.id;
+
+  // Enable footer buttons
+  document.getElementById('btnToggleSelected').disabled = false;
+  document.getElementById('btnClearSelected').disabled = false;
+
+  refreshDetailPanel(id);
+}
+
+function refreshDetailPanel(id) {
+  if (selectedId !== id) return;
+  const s = sensors[id];
+
+  document.getElementById('dLat').textContent      = s.lat.toFixed(6);
+  document.getElementById('dLng').textContent      = s.lng.toFixed(6);
+  document.getElementById('dAlt').textContent      = s.alt.toFixed(1) + ' m';
+  document.getElementById('dAcc').textContent      = '±' + s.acc.toFixed(1) + ' m';
+  document.getElementById('dSpeed').textContent    = s.speed.toFixed(1);
+  document.getElementById('dHeading').textContent  = Math.round(s.heading) + '° ' + compassLabel(s.heading);
+  document.getElementById('dDistance').textContent = s.totalDist > 1000
+    ? (s.totalDist/1000).toFixed(2)+'k' : Math.round(s.totalDist);
+  document.getElementById('dUpdates').textContent  = s.updateCount;
+  document.getElementById('dHistCount').textContent = s.updateCount + ' pts';
+
+  // Speed alert
+  const alertEl = document.getElementById('speedAlert');
+  if (s.speed > 45) {
+    alertEl.style.display = '';
+    document.getElementById('speedAlertText').textContent = `High speed: ${s.speed.toFixed(1)} km/h`;
+  } else {
+    alertEl.style.display = 'none';
+  }
+
+  // Toggle button label
+  const btn = document.getElementById('btnToggleSelected');
+  btn.textContent = s.isTracking ? 'Pause Selected' : 'Resume Selected';
+
+  // History — rebuild only last 15 items
+  const list = document.getElementById('dHistoryList');
+  list.innerHTML = '';
+  const slice = s.history.slice(-15).reverse();
+  slice.forEach((h, i) => {
+    const item = document.createElement('div');
+    item.className = 'history-item';
+    item.innerHTML = `
+      <span class="history-item__index">#${s.history.length - i}</span>
+      <span class="history-item__coords">${h.lat.toFixed(4)}, ${h.lng.toFixed(4)}</span>
+      <span class="history-item__time">${h.time}</span>
+    `;
+    list.appendChild(item);
+  });
+}
+
+// ── Per-sensor update ──────────────────────────────────────────────────────
+function updateSensor(id) {
+  const s = sensors[id];
+  if (!s.isTracking) return;
+
+  s.speed   = Math.max(0, Math.min(60, s.speed + (Math.random()-0.4)*10));
+  s.heading = (s.heading + (Math.random()-0.5)*25 + 360) % 360;
+
+  const dist = (s.speed / 3600) * 2.5 * 1000;
+  const dLat = dist * Math.cos(s.heading * Math.PI/180) / 111320;
+  const dLng = dist * Math.sin(s.heading * Math.PI/180) / (111320 * Math.cos(s.lat * Math.PI/180));
+
+  const prevLat = s.lat, prevLng = s.lng;
+  s.lat = s.lat + dLat + (Math.random()-0.5)*0.00002;
+  s.lng = s.lng + dLng + (Math.random()-0.5)*0.00002;
+  s.alt = 20 + Math.sin(s.updateCount/6)*6 + Math.random()*2;
+  s.acc = 2 + Math.random()*4;
+
+  if (s.updateCount > 0) s.totalDist += haversine(prevLat, prevLng, s.lat, s.lng);
+  s.updateCount++;
+
+  const pos = [s.lat, s.lng];
+  const now = new Date();
+
+  // Map marker
+  if (!s.marker) {
+    s.marker = L.marker(pos, { icon: s.markerIcon, zIndexOffset: 100 }).addTo(map);
+    s.marker.bindTooltip(`<b>${s.name}</b><br/>${s.id}`, {
+      permanent: false, direction: 'top', className: 'sensor-tooltip'
+    });
+  } else {
+    s.marker.setLatLng(pos);
+  }
+
+  // Trail
+  s.trailPoints.push(pos);
+  if (s.trailPoints.length > 200) s.trailPoints.shift();
+
+  if (s.trailPoints.length > 1) {
+    if (s.polyline) s.polyline.remove();
+    s.polyline = L.polyline(s.trailPoints, { color: s.color, weight: 2, opacity: 0.5 }).addTo(map);
+  }
+
+  // History
+  s.history.push({ lat: s.lat, lng: s.lng, time: fmtTime(now) });
+  if (s.history.length > 200) s.history.shift();
+
+  // Update list item sub-text
+  const listItem = document.querySelector(`.sensor-item[data-id="${id}"]`);
+  if (listItem) {
+    listItem.querySelector('.sensor-item__sub').textContent =
+      `${s.lat.toFixed(4)}, ${s.lng.toFixed(4)}`;
+  }
+
+  // Refresh detail panel if this sensor is selected
+  if (selectedId === id) refreshDetailPanel(id);
+
+  // Update footer timestamp
+  document.getElementById('footerText').textContent = `Last update: ${fmtTime(now)}`;
+}
+
+// ── Build sensor list UI ───────────────────────────────────────────────────
+function buildSensorList() {
+  const container = document.getElementById('sensorListEl');
+  container.innerHTML = '';
+
+  SENSOR_CONFIGS.forEach(cfg => {
+    const s = sensors[cfg.id];
+    const item = document.createElement('div');
+    item.className = 'sensor-item';
+    item.dataset.id = cfg.id;
+    item.style.setProperty('--sensor-color', cfg.color);
+    item.onclick = () => selectSensor(cfg.id);
+    item.innerHTML = `
+      <div class="sensor-item__dot pulsing" style="--sensor-color:${cfg.color};background:${cfg.color};"></div>
+      <div class="sensor-item__info">
+        <div class="sensor-item__name">${cfg.name}</div>
+        <div class="sensor-item__sub">${cfg.id}</div>
+      </div>
+      <div class="sensor-item__status live" title="Live"></div>
+    `;
+    container.appendChild(item);
+  });
+}
+
+// ── Controls ──────────────────────────────────────────────────────────────
+function toggleSelected() {
+  if (!selectedId) return;
+  const s = sensors[selectedId];
+  s.isTracking = !s.isTracking;
+
+  const statusDot = document.querySelector(`.sensor-item[data-id="${selectedId}"] .sensor-item__status`);
+  if (statusDot) {
+    statusDot.className = 'sensor-item__status ' + (s.isTracking ? 'live' : 'paused');
+    statusDot.title = s.isTracking ? 'Live' : 'Paused';
+  }
+
+  const pulseDot = document.querySelector(`.sensor-item[data-id="${selectedId}"] .sensor-item__dot`);
+  if (pulseDot) pulseDot.style.opacity = s.isTracking ? '1' : '0.4';
+
+  document.getElementById('btnToggleSelected').textContent = s.isTracking ? 'Pause Selected' : 'Resume Selected';
+}
+
+function clearSelectedTrail() {
+  if (!selectedId) return;
+  const s = sensors[selectedId];
+  s.trailPoints = [];
+  if (s.polyline) { s.polyline.remove(); s.polyline = null; }
+  s.totalDist = 0; s.updateCount = 0; s.history = [];
+  refreshDetailPanel(selectedId);
+}
+
+function centerSelected() {
+  if (selectedId && sensors[selectedId].marker) {
+    map.setView(sensors[selectedId].marker.getLatLng(), 15);
+  } else {
+    map.setView([38.9030, -77.0350], 13);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// REAL SENSOR CONNECTION
+// Replace the setInterval loops below with your transport layer.
+// Each sensor update just calls: updateSensor(sensorId)
+// after updating sensors[sensorId].lat/lng/speed/heading/alt/acc directly.
+//
+//   WebSocket (single stream, multiplexed by sensor id):
+//     const ws = new WebSocket('ws://your-server/sensors');
+//     ws.onmessage = e => {
+//       const d = JSON.parse(e.data); // { id, lat, lng, alt, acc, speed, heading }
+//       if (sensors[d.id]) {
+//         Object.assign(sensors[d.id], d);
+//         updateSensor(d.id);
+//       }
+//     };
+//
+//   REST polling (per sensor):
+//     SENSOR_CONFIGS.forEach(cfg => {
+//       setInterval(async () => {
+//         const d = await fetch(`/api/sensors/${cfg.id}`).then(r => r.json());
+//         Object.assign(sensors[cfg.id], d);
+//         updateSensor(cfg.id);
+//       }, 2000);
+//     });
+// ─────────────────────────────────────────────────────────────────────────
+
+// ── Init & simulation loop ─────────────────────────────────────────────────
+buildSensorList();
+
+// Stagger initial updates so sensors start offset in time
+SENSOR_CONFIGS.forEach((cfg, i) => {
+  setTimeout(() => {
+    updateSensor(cfg.id);
+    setInterval(() => updateSensor(cfg.id), 2000 + i * 200);
+  }, i * 400);
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GPS Sensor Tracker</title>
+  <link rel="stylesheet" href="https://unpkg.com/@patternfly/patternfly@5.3.1/patternfly.min.css" />
+  <link rel="stylesheet" href="https://unpkg.com/@patternfly/patternfly@5.3.1/patternfly-addons.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--pf-v5-global--BackgroundColor--dark-100, #1b1d21);
+      font-family: var(--pf-v5-global--FontFamily--text, RedHatText, Overpass, overpass, helvetica, arial, sans-serif);
+    }
+
+    /* ── Page shell ── */
+    .page-wrapper {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      min-height: 600px;
+      overflow: hidden;
+    }
+
+    /* ── Masthead ── */
+    .pf-v5-c-masthead {
+      --pf-v5-c-masthead--BackgroundColor: #1b1d21;
+      border-bottom: 1px solid var(--pf-v5-global--BorderColor--300, #3c3f42);
+      flex-shrink: 0;
+    }
+
+    /* ── Main layout: map + sidebar ── */
+    .main-content {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    #map {
+      flex: 1;
+      min-width: 0;
+      background: #1a1e26;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: 300px;
+      flex-shrink: 0;
+      overflow-y: auto;
+      background: var(--pf-v5-global--BackgroundColor--dark-200, #212427);
+      border-left: 1px solid var(--pf-v5-global--BorderColor--300, #3c3f42);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .sidebar-section {
+      padding: 16px;
+      border-bottom: 1px solid var(--pf-v5-global--BorderColor--300, #3c3f42);
+    }
+
+    .sidebar-section:last-child {
+      border-bottom: none;
+    }
+
+    /* ── Description list tweaks for dark ── */
+    .pf-v5-c-description-list {
+      --pf-v5-c-description-list__term--Color: var(--pf-v5-global--Color--200, #a7a9ac);
+      --pf-v5-c-description-list__description--Color: #e8eaed;
+    }
+
+    .pf-v5-c-description-list__term,
+    .pf-v5-c-description-list__description {
+      font-size: 13px;
+    }
+
+    .mono {
+      font-family: var(--pf-v5-global--FontFamily--monospace, RedHatMono, Liberation Mono, consolas, SFMono-Regular, Courier New, monospace);
+      font-size: 13px;
+    }
+
+    /* ── Stat cards ── */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .stat-card {
+      background: var(--pf-v5-global--BackgroundColor--dark-300, #2a2d33);
+      border: 1px solid var(--pf-v5-global--BorderColor--300, #3c3f42);
+      border-radius: 4px;
+      padding: 10px 12px;
+    }
+
+    .stat-card__value {
+      font-family: var(--pf-v5-global--FontFamily--monospace, monospace);
+      font-size: 18px;
+      font-weight: 600;
+      color: #e8eaed;
+    }
+
+    .stat-card__label {
+      font-size: 11px;
+      color: var(--pf-v5-global--Color--200, #a7a9ac);
+      margin-top: 2px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+
+    /* ── Status badge ── */
+    .live-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: .05em;
+    }
+
+    .live-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--pf-v5-global--success-color--100, #3e8635);
+      animation: livepulse 1.4s ease-in-out infinite;
+    }
+
+    @keyframes livepulse {
+      0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(62,134,53,.5); }
+      50%       { opacity: .7; box-shadow: 0 0 0 5px rgba(62,134,53,0); }
+    }
+
+    .paused-dot {
+      background: var(--pf-v5-global--warning-color--100, #f0ab00);
+      animation: none;
+    }
+
+    /* ── History list ── */
+    .history-list {
+      max-height: 180px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .history-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 8px;
+      background: var(--pf-v5-global--BackgroundColor--dark-300, #2a2d33);
+      border: 1px solid var(--pf-v5-global--BorderColor--300, #3c3f42);
+      border-radius: 3px;
+      animation: slideIn .2s ease;
+    }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to   { opacity: 1; transform: none; }
+    }
+
+    .history-item__index {
+      font-family: monospace;
+      font-size: 10px;
+      color: var(--pf-v5-global--Color--200, #a7a9ac);
+      min-width: 26px;
+    }
+
+    .history-item__coords {
+      font-family: monospace;
+      font-size: 11px;
+      color: #e8eaed;
+      flex: 1;
+    }
+
+    .history-item__time {
+      font-family: monospace;
+      font-size: 10px;
+      color: var(--pf-v5-global--Color--200, #a7a9ac);
+    }
+
+    /* ── Footer toolbar ── */
+    .footer-bar {
+      flex-shrink: 0;
+      padding: 8px 16px;
+      background: #1b1d21;
+      border-top: 1px solid var(--pf-v5-global--BorderColor--300, #3c3f42);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .footer-bar__text {
+      font-size: 12px;
+      color: var(--pf-v5-global--Color--200, #a7a9ac);
+      font-family: monospace;
+    }
+
+    /* ── Section title ── */
+    .section-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: var(--pf-v5-global--Color--200, #a7a9ac);
+      margin-bottom: 10px;
+    }
+
+    /* ── Custom map marker ── */
+    .sensor-marker {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--pf-v5-global--primary-color--100, #06c);
+      border: 2px solid #fff;
+      box-shadow: 0 0 8px rgba(0, 102, 204, .7);
+    }
+
+    .trail-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: rgba(0, 102, 204, .45);
+      border: 1px solid rgba(0, 102, 204, .7);
+    }
+
+    /* ── PF button overrides for dark ── */
+    .pf-v5-c-button.pf-m-secondary {
+      --pf-v5-c-button--m-secondary--Color: #e8eaed;
+      --pf-v5-c-button--m-secondary--BorderColor: #3c3f42;
+      --pf-v5-c-button--m-secondary--hover--Color: #e8eaed;
+      --pf-v5-c-button--m-secondary--hover--BackgroundColor: #2a2d33;
+    }
+
+    /* scrollbar dark */
+    .history-list::-webkit-scrollbar { width: 4px; }
+    .history-list::-webkit-scrollbar-track { background: transparent; }
+    .history-list::-webkit-scrollbar-thumb { background: #3c3f42; border-radius: 2px; }
+    .sidebar::-webkit-scrollbar { width: 4px; }
+    .sidebar::-webkit-scrollbar-track { background: transparent; }
+    .sidebar::-webkit-scrollbar-thumb { background: #3c3f42; border-radius: 2px; }
+  </style>
+</head>
+<body>
+<div class="page-wrapper">
+
+  <!-- ── Masthead ── -->
+  <header class="pf-v5-c-masthead">
+    <div class="pf-v5-c-masthead__main" style="display:flex;align-items:center;justify-content:space-between;padding:0 16px;height:48px;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <!-- satellite icon -->
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/><line x1="3" y1="3" x2="9" y2="9"/><line x1="15" y1="15" x2="21" y2="21"/>
+          <line x1="3" y1="21" x2="9" y2="15"/><line x1="15" y1="9" x2="21" y2="3"/>
+          <line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/>
+          <line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/>
+        </svg>
+        <span style="font-size:15px;font-weight:600;color:#e8eaed;letter-spacing:.02em;">GPS Sensor Tracker</span>
+        <span class="pf-v5-c-badge pf-m-unread" style="background:#2a2d33;color:#a7a9ac;font-family:monospace;font-size:11px;">SENSOR-01</span>
+      </div>
+      <div class="live-badge" id="statusBadge">
+        <div class="live-dot" id="liveDot"></div>
+        <span id="statusText" style="color:#3e8635;">LIVE</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── Main ── -->
+  <div class="main-content">
+    <div id="map"></div>
+
+    <aside class="sidebar">
+
+      <!-- Position -->
+      <div class="sidebar-section">
+        <div class="section-title">Position</div>
+        <dl class="pf-v5-c-description-list pf-m-compact" style="--pf-v5-c-description-list--ColumnGap: 0; --pf-v5-c-description-list--RowGap: 6px;">
+          <div class="pf-v5-c-description-list__group">
+            <dt class="pf-v5-c-description-list__term"><span class="pf-v5-c-description-list__text" style="color:#a7a9ac;">Latitude</span></dt>
+            <dd class="pf-v5-c-description-list__description"><span class="pf-v5-c-description-list__text mono" id="lat">—</span></dd>
+          </div>
+          <div class="pf-v5-c-description-list__group">
+            <dt class="pf-v5-c-description-list__term"><span class="pf-v5-c-description-list__text" style="color:#a7a9ac;">Longitude</span></dt>
+            <dd class="pf-v5-c-description-list__description"><span class="pf-v5-c-description-list__text mono" id="lng">—</span></dd>
+          </div>
+          <div class="pf-v5-c-description-list__group">
+            <dt class="pf-v5-c-description-list__term"><span class="pf-v5-c-description-list__text" style="color:#a7a9ac;">Altitude</span></dt>
+            <dd class="pf-v5-c-description-list__description"><span class="pf-v5-c-description-list__text mono" id="alt">—</span></dd>
+          </div>
+          <div class="pf-v5-c-description-list__group">
+            <dt class="pf-v5-c-description-list__term"><span class="pf-v5-c-description-list__text" style="color:#a7a9ac;">Accuracy</span></dt>
+            <dd class="pf-v5-c-description-list__description"><span class="pf-v5-c-description-list__text mono" id="acc">—</span></dd>
+          </div>
+        </dl>
+      </div>
+
+      <!-- Motion -->
+      <div class="sidebar-section">
+        <div class="section-title">Motion</div>
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-card__value" id="speed">—</div>
+            <div class="stat-card__label">Speed km/h</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__value" id="heading">—</div>
+            <div class="stat-card__label">Heading</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__value" id="distance">0</div>
+            <div class="stat-card__label">Distance m</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__value" id="updates">0</div>
+            <div class="stat-card__label">Updates</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Alerts -->
+      <div class="sidebar-section" id="alertsSection" style="display:none;">
+        <div class="pf-v5-c-alert pf-m-warning pf-m-inline" style="--pf-v5-c-alert--BackgroundColor:#2a2d33;">
+          <div class="pf-v5-c-alert__icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f0ab00" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          </div>
+          <p class="pf-v5-c-alert__title" id="alertText" style="font-size:12px;color:#f0ab00;">High speed detected</p>
+        </div>
+      </div>
+
+      <!-- History -->
+      <div class="sidebar-section" style="flex:1;">
+        <div class="section-title" style="display:flex;justify-content:space-between;">
+          <span>History</span>
+          <span id="histCount" style="font-weight:400;text-transform:none;letter-spacing:0;">0 pts</span>
+        </div>
+        <div class="history-list" id="historyList"></div>
+      </div>
+
+    </aside>
+  </div>
+
+  <!-- ── Footer toolbar ── -->
+  <div class="footer-bar">
+    <div class="footer-bar__text" id="lastUpdate">Waiting for signal…</div>
+    <div style="display:flex;gap:8px;">
+      <button class="pf-v5-c-button pf-m-secondary pf-m-sm" id="btnToggle" onclick="toggleTracking()">
+        <span class="pf-v5-c-button__icon pf-m-start"></span>Pause
+      </button>
+      <button class="pf-v5-c-button pf-m-secondary pf-m-sm" onclick="clearTrail()">Clear Trail</button>
+      <button class="pf-v5-c-button pf-m-primary pf-m-sm" onclick="centerMap()">Center Map</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // ── Map setup ──────────────────────────────────────────────────────────────
+  const map = L.map('map', { zoomControl: true, attributionControl: false });
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19
+  }).addTo(map);
+
+  const sensorIcon = L.divIcon({
+    html: '<div class="sensor-marker"></div>',
+    className: '', iconSize: [14, 14], iconAnchor: [7, 7]
+  });
+
+  const trailIcon = L.divIcon({
+    html: '<div class="trail-dot"></div>',
+    className: '', iconSize: [7, 7], iconAnchor: [3, 3]
+  });
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  let sensorMarker = null;
+  let trailPoints = [];
+  let trailDots = [];
+  let polyline = null;
+  let totalDist = 0;
+  let updateCount = 0;
+  let isTracking = true;
+
+  // Simulated sensor state
+  let lat = 38.8977, lng = -77.0365; // White House starting point
+  let speed = 0, heading = 45;
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function haversine(la, lo, la2, lo2) {
+    const R = 6371000, dLat = (la2 - la) * Math.PI / 180;
+    const dLng = (lo2 - lo) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(la * Math.PI / 180) * Math.cos(la2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  function compassLabel(h) {
+    return ['N','NE','E','SE','S','SW','W','NW'][Math.round(h / 45) % 8];
+  }
+
+  function fmtTime(d) {
+    return d.toTimeString().slice(0, 8);
+  }
+
+  // ── Core update ───────────────────────────────────────────────────────────
+  function processUpdate(newLat, newLng, newAlt, newAcc, newSpeed, newHeading) {
+    const prevLat = lat, prevLng = lng;
+    lat = newLat; lng = newLng;
+
+    if (updateCount > 0) totalDist += haversine(prevLat, prevLng, lat, lng);
+    updateCount++;
+
+    const pos = [lat, lng];
+
+    if (!sensorMarker) {
+      sensorMarker = L.marker(pos, { icon: sensorIcon, zIndexOffset: 1000 }).addTo(map);
+      map.setView(pos, 15);
+    } else {
+      sensorMarker.setLatLng(pos);
+    }
+
+    trailPoints.push(pos);
+    if (trailPoints.length > 300) trailPoints.shift();
+
+    if (trailPoints.length > 1) {
+      if (polyline) polyline.remove();
+      polyline = L.polyline(trailPoints, { color: '#06c', weight: 2.5, opacity: 0.65 }).addTo(map);
+    }
+
+    if (updateCount % 5 === 0) {
+      const dot = L.marker(pos, { icon: trailIcon }).addTo(map);
+      trailDots.push(dot);
+      if (trailDots.length > 50) { trailDots[0].remove(); trailDots.shift(); }
+    }
+
+    // Update UI
+    document.getElementById('lat').textContent = lat.toFixed(6);
+    document.getElementById('lng').textContent = lng.toFixed(6);
+    document.getElementById('alt').textContent = newAlt.toFixed(1) + ' m';
+    document.getElementById('acc').textContent = '±' + newAcc.toFixed(1) + ' m';
+    document.getElementById('speed').textContent = newSpeed.toFixed(1);
+    document.getElementById('heading').textContent = Math.round(newHeading) + '° ' + compassLabel(newHeading);
+    document.getElementById('distance').textContent = totalDist > 1000
+      ? (totalDist / 1000).toFixed(2) + 'k'
+      : Math.round(totalDist);
+    document.getElementById('updates').textContent = updateCount;
+
+    const now = new Date();
+    document.getElementById('lastUpdate').textContent = 'Last update: ' + fmtTime(now);
+    document.getElementById('histCount').textContent = updateCount + ' pts';
+
+    // Speed alert
+    const alertSection = document.getElementById('alertsSection');
+    if (newSpeed > 45) {
+      alertSection.style.display = '';
+      document.getElementById('alertText').textContent = `High speed: ${newSpeed.toFixed(1)} km/h`;
+    } else {
+      alertSection.style.display = 'none';
+    }
+
+    // History
+    const list = document.getElementById('historyList');
+    const item = document.createElement('div');
+    item.className = 'history-item';
+    item.innerHTML = `
+      <span class="history-item__index">#${updateCount}</span>
+      <span class="history-item__coords">${lat.toFixed(4)}, ${lng.toFixed(4)}</span>
+      <span class="history-item__time">${fmtTime(now)}</span>
+    `;
+    list.insertBefore(item, list.firstChild);
+    while (list.children.length > 20) list.removeChild(list.lastChild);
+  }
+
+  // ── Simulation ────────────────────────────────────────────────────────────
+  function simulateUpdate() {
+    if (!isTracking) return;
+
+    speed = Math.max(0, Math.min(60, speed + (Math.random() - 0.4) * 10));
+    heading += (Math.random() - 0.5) * 25;
+    if (heading < 0) heading += 360;
+    if (heading >= 360) heading -= 360;
+
+    const dist = (speed / 3600) * 2 * 1000;
+    const dLat = dist * Math.cos(heading * Math.PI / 180) / 111320;
+    const dLng = dist * Math.sin(heading * Math.PI / 180) / (111320 * Math.cos(lat * Math.PI / 180));
+
+    const newLat = lat + dLat + (Math.random() - 0.5) * 0.00002;
+    const newLng = lng + dLng + (Math.random() - 0.5) * 0.00002;
+    const alt = 18 + Math.sin(updateCount / 6) * 5 + Math.random() * 2;
+    const acc = 2 + Math.random() * 4;
+
+    processUpdate(newLat, newLng, alt, acc, speed, heading);
+  }
+
+  // ── Controls ──────────────────────────────────────────────────────────────
+  function toggleTracking() {
+    isTracking = !isTracking;
+    const btn = document.getElementById('btnToggle');
+    const dot = document.getElementById('liveDot');
+    const statusText = document.getElementById('statusText');
+    if (isTracking) {
+      btn.textContent = 'Pause';
+      dot.className = 'live-dot';
+      statusText.textContent = 'LIVE';
+      statusText.style.color = '#3e8635';
+    } else {
+      btn.textContent = 'Resume';
+      dot.className = 'live-dot paused-dot';
+      statusText.textContent = 'PAUSED';
+      statusText.style.color = '#f0ab00';
+    }
+  }
+
+  function clearTrail() {
+    trailPoints = [];
+    trailDots.forEach(m => m.remove()); trailDots = [];
+    if (polyline) { polyline.remove(); polyline = null; }
+    document.getElementById('historyList').innerHTML = '';
+    totalDist = 0; updateCount = 0;
+    document.getElementById('distance').textContent = '0';
+    document.getElementById('updates').textContent = '0';
+    document.getElementById('histCount').textContent = '0 pts';
+  }
+
+  function centerMap() {
+    if (sensorMarker) map.setView(sensorMarker.getLatLng(), 15);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // To connect a REAL sensor, replace the setInterval below with:
+  //
+  //   WebSocket:
+  //     const ws = new WebSocket('ws://your-server/sensor');
+  //     ws.onmessage = e => {
+  //       const d = JSON.parse(e.data); // { lat, lng, alt, acc, speed, heading }
+  //       processUpdate(d.lat, d.lng, d.alt, d.acc, d.speed, d.heading);
+  //     };
+  //
+  //   REST polling:
+  //     setInterval(async () => {
+  //       if (!isTracking) return;
+  //       const d = await fetch('/api/sensor').then(r => r.json());
+  //       processUpdate(d.lat, d.lng, d.alt, d.acc, d.speed, d.heading);
+  //     }, 2000);
+  //
+  //   Browser Geolocation (mobile device as sensor):
+  //     navigator.geolocation.watchPosition(p =>
+  //       processUpdate(p.coords.latitude, p.coords.longitude,
+  //                     p.coords.altitude ?? 0, p.coords.accuracy,
+  //                     (p.coords.speed ?? 0) * 3.6, p.coords.heading ?? 0));
+  // ─────────────────────────────────────────────────────────────────────────
+
+  map.setView([lat, lng], 14);
+  simulateUpdate();
+  setInterval(simulateUpdate, 2000);
+</script>
+</body>
+</html>
