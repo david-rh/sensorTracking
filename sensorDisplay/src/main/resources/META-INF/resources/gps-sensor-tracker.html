@@ -554,8 +554,19 @@
   // ─────────────────────────────────────────────────────────────────────────
 
   map.setView([lat, lng], 14);
-  simulateUpdate();
-  setInterval(simulateUpdate, 2000);
+  //simulateUpdate();
+  //setInterval(simulateUpdate, 2000);
+  var source = new EventSource('/sensors');
+  source.onmessage = function(event) {
+    console.log('Received sensor update:', event.data);
+      
+      const d = JSON.parse(event.data);
+      processUpdate(d.lat, d.lng, d.alt, d.acc, d.speed, d.heading);
+    };
+  source.onerror = function(err) {
+      console.error('EventSource failed:', err);
+      source.close();
+    };
 </script>
 </body>
 </html>

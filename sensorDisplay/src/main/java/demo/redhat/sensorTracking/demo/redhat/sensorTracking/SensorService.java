@@ -6,6 +6,8 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 
+import java.lang.System.Logger.Level;
+
 import org.eclipse.microprofile.reactive.messaging.Channel;
 
 import demo.redhat.sensorTracking.model.SensorData;
@@ -20,7 +22,11 @@ public class SensorService {
     @GET
     @Produces(MediaType.SERVER_SENT_EVENTS)
     public Multi<SensorData> stream() {
-        return stream.map(s -> new SensorData(s.getId(), s.getLat(), s.getLng(), s.getAlt(), s.getAcc(), s.getSpeed(), s.getHeading()));
+
+        // FIXME The SensorData object need to be converted to JSON, this conversion isn't happening for some reason
+
+        System.getLogger(SensorService.class.getName()).log(Level.DEBUG, stream);
+        return stream.log();
     }
 
 }
