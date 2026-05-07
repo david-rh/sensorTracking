@@ -49,16 +49,16 @@ public class SensorData {
     public void setSpeed(double speed)     { this.speed = speed; }
     public void setHeading(double heading) { this.heading = heading; }
 
-    @Override
-    public String toString() {
-        return "SensorData{" +
-                "id='" + id + '\'' +
-                ", lat=" + lat +
-                ", lng=" + lng +
-                ", alt=" + alt +
-                ", acc=" + acc +
-                ", speed=" + speed +
-                ", heading=" + heading +
-                '}';
-    }
+    // @Override
+    // public String toString() {
+    //     return "SensorData{" +
+    //             "id='" + id + '\'' +
+    //             ", lat=" + lat +
+    //             ", lng=" + lng +
+    //             ", alt=" + alt +
+    //             ", acc=" + acc +
+    //             ", speed=" + speed +
+    //             ", heading=" + heading +
+    //             '}';
+    // }
 }
