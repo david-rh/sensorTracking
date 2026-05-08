@@ -362,6 +362,63 @@
     ::-webkit-scrollbar { width: 4px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #3c3f42; border-radius: 2px; }
+
+    /* ── Add Sensor Modal ── */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.6);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal-card {
+      background: #212427;
+      border: 1px solid #3c3f42;
+      border-radius: 6px;
+      width: 380px;
+      max-width: calc(100vw - 32px);
+    }
+    .modal-header {
+      padding: 14px 16px;
+      border-bottom: 1px solid #3c3f42;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .modal-header__title { font-size: 14px; font-weight: 600; color: #e8eaed; }
+    .modal-body { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+    .modal-footer {
+      padding: 12px 16px;
+      border-top: 1px solid #3c3f42;
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    .form-group { display: flex; flex-direction: column; gap: 4px; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .form-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: #a7a9ac;
+    }
+    .form-input {
+      background: #2a2d33;
+      border: 1px solid #3c3f42;
+      border-radius: 3px;
+      color: #e8eaed;
+      font-size: 13px;
+      padding: 6px 9px;
+      width: 100%;
+      outline: none;
+    }
+    .form-input:focus { border-color: #06c; }
+    .form-error { font-size: 11px; color: #c9190b; min-height: 16px; }
+    input[type="color"].form-input { padding: 2px 4px; height: 32px; cursor: pointer; }
   </style>
 </head>
 <body>
@@ -393,7 +450,11 @@
 
     <!-- Left: sensor list -->
     <div class="sensor-list-panel">
-      <div class="panel-header">Sensors</div>
+      <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center;">
+        <span>Sensors</span>
+        <button onclick="openAddSensorModal()" title="Add sensor"
+          style="background:none;border:1px solid #3c3f42;border-radius:3px;color:#a7a9ac;cursor:pointer;font-size:16px;line-height:1;padding:1px 6px;">+</button>
+      </div>
       <div class="sensor-items" id="sensorListEl"></div>
     </div>
 
@@ -492,6 +553,54 @@
   </div>
 
 </div><!-- end page-wrapper -->
+
+<!-- ── Add Sensor Modal ── -->
+<div class="modal-overlay" id="addSensorModal" onclick="handleModalBackdrop(event)">
+  <div class="modal-card">
+    <div class="modal-header">
+      <span class="modal-header__title">Add Remote Sensor</span>
+      <button onclick="closeAddSensorModal()"
+        style="background:none;border:none;color:#a7a9ac;cursor:pointer;font-size:20px;line-height:1;padding:0;">×</button>
+    </div>
+    <form id="addSensorForm" onsubmit="submitAddSensor(event)">
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="fId">Sensor ID</label>
+            <input class="form-input" id="fId" type="text" placeholder="sensor-5" required />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="fColor">Color</label>
+            <input class="form-input" id="fColor" type="color" value="#06c" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="fName">Display Name</label>
+          <input class="form-input" id="fName" type="text" placeholder="Echo Unit" required />
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="fLat">Start Latitude</label>
+            <input class="form-input" id="fLat" type="number" step="any" placeholder="38.8977" required />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="fLng">Start Longitude</label>
+            <input class="form-input" id="fLng" type="number" step="any" placeholder="-77.0365" required />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="fHeading">Start Heading (°)</label>
+          <input class="form-input" id="fHeading" type="number" min="0" max="360" value="0" required />
+        </div>
+        <div class="form-error" id="formError"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="pf-v5-c-button pf-m-secondary pf-m-sm" onclick="closeAddSensorModal()">Cancel</button>
+        <button type="submit" class="pf-v5-c-button pf-m-primary pf-m-sm" id="btnSubmitSensor">Add Sensor</button>
+      </div>
+    </form>
+  </div>
+</div>
 
 <script>
 // ── Sensor definitions (loaded from API) ──────────────────────────────────
@@ -753,6 +862,74 @@ function centerSelected() {
 //       }, 2000);
 //     });
 // ─────────────────────────────────────────────────────────────────────────
+
+// ── Add Sensor Modal ───────────────────────────────────────────────────────
+function openAddSensorModal() {
+  document.getElementById('addSensorForm').reset();
+  document.getElementById('formError').textContent = '';
+  document.getElementById('addSensorModal').classList.add('open');
+  document.getElementById('fId').focus();
+}
+
+function closeAddSensorModal() {
+  document.getElementById('addSensorModal').classList.remove('open');
+}
+
+function handleModalBackdrop(e) {
+  if (e.target === document.getElementById('addSensorModal')) closeAddSensorModal();
+}
+
+async function submitAddSensor(e) {
+  e.preventDefault();
+  const errorEl = document.getElementById('formError');
+  const btn = document.getElementById('btnSubmitSensor');
+  errorEl.textContent = '';
+
+  const cfg = {
+    id:           document.getElementById('fId').value.trim(),
+    name:         document.getElementById('fName').value.trim(),
+    color:        document.getElementById('fColor').value,
+    startLat:     parseFloat(document.getElementById('fLat').value),
+    startLng:     parseFloat(document.getElementById('fLng').value),
+    startHeading: parseFloat(document.getElementById('fHeading').value),
+  };
+
+  if (sensors[cfg.id]) {
+    errorEl.textContent = `Sensor ID "${cfg.id}" already exists.`;
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Adding…';
+  try {
+    const res = await fetch('/sensor-configs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cfg),
+    });
+    if (!res.ok) throw new Error(`Server error ${res.status}`);
+
+    SENSOR_CONFIGS.push(cfg);
+    initSensorState(cfg);
+    buildSensorList();
+    document.getElementById('sensorCountBadge').textContent = `${SENSOR_CONFIGS.length} sensors active`;
+
+    const source = new EventSource(`/sensors/${cfg.id}`);
+    source.onmessage = ev => {
+      const d = JSON.parse(ev.data);
+      Object.assign(sensors[cfg.id], d);
+      updateSensor(cfg.id);
+    };
+    source.onerror = () => console.error(`SSE error for ${cfg.id}`);
+
+    closeAddSensorModal();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Add Sensor';
+  }
+}
 
 // ── Init: load configs from API then start ─────────────────────────────────
 async function init() {
