@@ -380,7 +380,7 @@
       <span class="masthead__title">GPS Multi-Sensor Tracker</span>
     </div>
     <div class="masthead__right">
-      <span class="sensor-count-badge" id="sensorCountBadge">4 sensors active</span>
+      <span class="sensor-count-badge" id="sensorCountBadge">0 sensors active</span>
       <div style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;">
         <div style="width:7px;height:7px;border-radius:50%;background:#3e8635;animation:livepulse 1.4s ease-in-out infinite;"></div>
         <span style="color:#3e8635;">LIVE</span>
@@ -483,7 +483,7 @@
 
   <!-- ── Footer ── -->
   <div class="footer-bar">
-    <div class="footer-bar__text" id="footerText">Tracking 4 sensors…</div>
+    <div class="footer-bar__text" id="footerText">Loading sensors…</div>
     <div style="display:flex;gap:8px;">
       <button class="pf-v5-c-button pf-m-secondary pf-m-sm" id="btnToggleSelected" onclick="toggleSelected()" disabled>Pause Selected</button>
       <button class="pf-v5-c-button pf-m-secondary pf-m-sm" id="btnClearSelected" onclick="clearSelectedTrail()" disabled>Clear Trail</button>
@@ -494,13 +494,8 @@
 </div><!-- end page-wrapper -->
 
 <script>
-// ── Sensor definitions ─────────────────────────────────────────────────────
-const SENSOR_CONFIGS = [
-  { id: 'SNS-01', name: 'Alpha Unit',   color: '#06c',    startLat: 38.8977, startLng: -77.0365, startHeading: 45  },
-  { id: 'SNS-02', name: 'Bravo Unit',   color: '#c9190b', startLat: 38.9072, startLng: -77.0490, startHeading: 140 },
-  { id: 'SNS-03', name: 'Charlie Unit', color: '#f0ab00', startLat: 38.8890, startLng: -77.0200, startHeading: 220 },
-  { id: 'SNS-04', name: 'Delta Unit',   color: '#3e8635', startLat: 38.9150, startLng: -77.0300, startHeading: 300 },
-];
+// ── Sensor definitions (loaded from API) ──────────────────────────────────
+let SENSOR_CONFIGS = [];
 
 // ── Map setup ──────────────────────────────────────────────────────────────
 const map = L.map('map', { zoomControl: true, attributionControl: false });
@@ -520,15 +515,14 @@ function hexToRgb(hex) {
   return `${r},${g},${b}`;
 }
 
-// ── Build sensor state objects ─────────────────────────────────────────────
+// ── Sensor state (populated from API configs) ──────────────────────────────
 const sensors = {};
 
-SENSOR_CONFIGS.forEach(cfg => {
+function initSensorState(cfg) {
   const markerIcon = L.divIcon({
     html: `<div style="width:13px;height:13px;border-radius:50%;background:${cfg.color};border:2px solid #fff;box-shadow:0 0 8px rgba(${hexToRgb(cfg.color)},.7);"></div>`,
     className: '', iconSize: [13,13], iconAnchor: [6,6]
   });
-
   sensors[cfg.id] = {
     ...cfg,
     lat: cfg.startLat, lng: cfg.startLng,
@@ -538,9 +532,9 @@ SENSOR_CONFIGS.forEach(cfg => {
     isTracking: true,
     trailPoints: [], trailDots: [], polyline: null,
     marker: null, markerIcon,
-    history: [],         // { lat, lng, time }
+    history: [],
   };
-});
+}
 
 // ── Selected sensor ────────────────────────────────────────────────────────
 let selectedId = null;
@@ -760,15 +754,32 @@ function centerSelected() {
 //     });
 // ─────────────────────────────────────────────────────────────────────────
 
-// ── Init & simulation loop ─────────────────────────────────────────────────
-buildSensorList();
+// ── Init: load configs from API then start ─────────────────────────────────
+async function init() {
+  const res = await fetch('/sensor-configs');
+  SENSOR_CONFIGS = await res.json();
 
-// Stagger initial updates so sensors start offset in time
-SENSOR_CONFIGS.forEach((cfg, i) => {
-  setTimeout(() => {
-    updateSensor(cfg.id);
-    setInterval(() => updateSensor(cfg.id), 2000 + i * 200);
-  }, i * 400);
+  SENSOR_CONFIGS.forEach(initSensorState);
+  buildSensorList();
+
+  const n = SENSOR_CONFIGS.length;
+  document.getElementById('sensorCountBadge').textContent = `${n} sensors active`;
+  document.getElementById('footerText').textContent = `Tracking ${n} sensors…`;
+
+  SENSOR_CONFIGS.forEach(cfg => {
+    const source = new EventSource(`/sensors/${cfg.id}`);
+    source.onmessage = e => {
+      const d = JSON.parse(e.data);
+      Object.assign(sensors[cfg.id], d);
+      updateSensor(cfg.id);
+    };
+    source.onerror = err => console.error(`SSE error for ${cfg.id}:`, err);
+  });
+}
+  
+init().catch(err => {
+  console.error('Failed to load sensor configs:', err);
+  document.getElementById('footerText').textContent = 'Error loading sensors';
 });
 </script>
 </body>

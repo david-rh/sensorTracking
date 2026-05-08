@@ -556,7 +556,7 @@
   map.setView([lat, lng], 14);
   //simulateUpdate();
   //setInterval(simulateUpdate, 2000);
-  var source = new EventSource('/sensors');
+  var source = new EventSource('/sensors/sensor-1');
   source.onmessage = function(event) {
     console.log('Received sensor update:', event.data);
       
