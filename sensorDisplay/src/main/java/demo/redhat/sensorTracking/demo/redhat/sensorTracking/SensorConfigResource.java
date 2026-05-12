@@ -6,9 +6,11 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import demo.redhat.sensorTracking.model.SensorConfig;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -36,5 +38,14 @@ public class SensorConfigResource {
     public Response add(SensorConfig config) {
         configs.add(config);
         return Response.status(Response.Status.CREATED).entity(config).build();
+    }
+
+    @DELETE
+    @Path("/{id}")
+    public Response remove(@PathParam("id") String id) {
+        boolean removed = configs.removeIf(c -> c.getId().equals(id));
+        return removed
+            ? Response.noContent().build()
+            : Response.status(Response.Status.NOT_FOUND).build();
     }
 }

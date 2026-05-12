@@ -171,6 +171,20 @@
     .sensor-item__status.live   { background: #3e8635; animation: livepulse 1.4s ease-in-out infinite; }
     .sensor-item__status.paused { background: #f0ab00; }
 
+    .sensor-item__remove {
+      display: none;
+      background: none;
+      border: none;
+      color: #6b7280;
+      cursor: pointer;
+      font-size: 16px;
+      line-height: 1;
+      padding: 0 2px;
+      flex-shrink: 0;
+    }
+    .sensor-item__remove:hover { color: #c9190b; }
+    .sensor-item:hover .sensor-item__remove { display: block; }
+
     @keyframes livepulse {
       0%, 100% { opacity: 1; }
       50%       { opacity: .4; }
@@ -626,6 +640,7 @@ function hexToRgb(hex) {
 
 // ── Sensor state (populated from API configs) ──────────────────────────────
 const sensors = {};
+const eventSources = {};
 
 function initSensorState(cfg) {
   const markerIcon = L.divIcon({
@@ -778,13 +793,45 @@ function updateSensor(id) {
   document.getElementById('footerText').textContent = `Last update: ${fmtTime(now)}`;
 }
 
+// ── Remove sensor ──────────────────────────────────────────────────────────
+async function removeSensor(id) {
+  try {
+    await fetch(`/sensor-configs/${id}`, { method: 'DELETE' });
+  } catch (e) {
+    console.error('Failed to remove sensor config:', e);
+  }
+
+  if (eventSources[id]) {
+    eventSources[id].close();
+    delete eventSources[id];
+  }
+
+  const s = sensors[id];
+  if (s) {
+    if (s.marker) s.marker.remove();
+    if (s.polyline) s.polyline.remove();
+  }
+  delete sensors[id];
+  SENSOR_CONFIGS = SENSOR_CONFIGS.filter(c => c.id !== id);
+
+  if (selectedId === id) {
+    selectedId = null;
+    document.getElementById('noSelection').style.display = '';
+    document.getElementById('detailContent').style.display = 'none';
+    document.getElementById('btnToggleSelected').disabled = true;
+    document.getElementById('btnClearSelected').disabled = true;
+  }
+
+  buildSensorList();
+  document.getElementById('sensorCountBadge').textContent = `${SENSOR_CONFIGS.length} sensors active`;
+}
+
 // ── Build sensor list UI ───────────────────────────────────────────────────
 function buildSensorList() {
   const container = document.getElementById('sensorListEl');
   container.innerHTML = '';
 
   SENSOR_CONFIGS.forEach(cfg => {
-    const s = sensors[cfg.id];
     const item = document.createElement('div');
     item.className = 'sensor-item';
     item.dataset.id = cfg.id;
@@ -797,6 +844,8 @@ function buildSensorList() {
         <div class="sensor-item__sub">${cfg.id}</div>
       </div>
       <div class="sensor-item__status live" title="Live"></div>
+      <button class="sensor-item__remove" title="Remove sensor"
+        onclick="event.stopPropagation(); removeSensor('${cfg.id}')">×</button>
     `;
     container.appendChild(item);
   });
@@ -950,7 +999,8 @@ async function init() {
       Object.assign(sensors[cfg.id], d);
       updateSensor(cfg.id);
     };
-    source.onerror = err => console.error(`SSE error for ${cfg.id}:`, err);
+    source.onerror = () => console.error(`SSE error for ${cfg.id}`);
+    eventSources[cfg.id] = source;
   });
 }
   

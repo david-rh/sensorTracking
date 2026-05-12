@@ -1,24 +1,31 @@
 package demo.redhat.sensorTracking.demo.redhat.sensorTracking;
 
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.eclipse.microprofile.reactive.messaging.Outgoing;
 
 import demo.redhat.sensorTracking.model.SensorData;
 import io.smallrye.mutiny.Multi;
 import io.smallrye.reactive.messaging.kafka.KafkaRecord;
+import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 
 @ApplicationScoped
 public class SensorPublisher {
 
+    @ConfigProperty(name = "sensor.id")
+    String sensorId;
+
+    @ConfigProperty(name = "sensor.start.lat")
+    double startLat;
+
+    @ConfigProperty(name = "sensor.start.lng")
+    double startLng;
+
     private SensorData sensorData;
 
-    public SensorPublisher() {
-        initSensorData();
-    }
-
-    private void initSensorData() {
-        sensorData = new SensorData("sensor-1", 38.8977, -77.0365, 0.0, 0.0, 0.0, 45);
-
+    @PostConstruct
+    void initSensorData() {
+        sensorData = new SensorData(sensorId, startLat, startLng, 0.0, 0.0, 0.0, 45);
     }
 
     @Outgoing("sensor-data")
