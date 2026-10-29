@@ -1,54 +1,44 @@
 # sensorTracking
 
-This repository contains a simple Quarkus-based sensor tracking demo with two modules:
+A Quarkus-based GPS sensor tracking demo. A remote sensor publishes simulated GPS telemetry to Kafka over TLS, and a display application consumes the data and renders moving markers on a dark-themed map.
 
-- remoteSensor: a small producer app that generates sensor data and publishes it to Kafka.
-- sensorDisplay: a consumer app that subscribes to the same Kafka topic and renders the incoming telemetry in a browser-based UI.
+## Project structure
 
-The demo is intended to show how a remote sensor can send data through Kafka to a display application using Quarkus and Kafka SSL configuration.
+```
+sensorTracking/
+├── remoteSensor/         # Quarkus producer — generates and publishes GPS data to Kafka
+├── sensorDisplay/        # Quarkus consumer — renders sensor positions on a Leaflet map
+│   └── deploy/           # Kubernetes/OpenShift manifests (Deployment, Service, Route, ConfigMap, Secret)
+├── kafka/                # AMQ Streams / Strimzi Kafka manifests with Kustomize
+├── ansible/              # Automation playbooks (cert management, build, deploy)
+└── pom.xml               # Parent POM (multi-module)
+```
 
 ## Prerequisites
 
-Before you start, make sure you have:
+- Java 25 and Maven (or use the included `mvnw` wrapper)
+- Podman (used for container builds)
+- A Kafka broker with TLS enabled (see [Deploying Kafka](#deploying-kafka))
+- `oc` CLI for OpenShift deployment
+- Ansible for running automation playbooks
 
-- Java 17+ and Maven
-- A running Kafka broker with TLS enabled
-- Access to the broker CA certificate (or cluster CA secret)
+## Local development
 
-## Getting started
-
-1. Clone the repository and build the parent project:
+1. Build both modules:
 
    ```bash
    ./mvnw package
    ```
 
-2. Create a Java truststore for the Kafka broker certificate.
-   If you are using OpenShift or AMQ Streams, the CA certificate is often exposed through a secret. The example below uses the OpenShift CLI:
+2. Set up the Kafka TLS truststore. You can do this manually or use the Ansible playbook (see [Certificate management](#certificate-management)):
 
    ```bash
-   oc get secret sensorkafka-cluster-ca-cert -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/kafka-ca.crt
-   keytool -import -trustcacerts -file /tmp/kafka-ca.crt -alias kafka-ca -keystore /home/daanders/Work/Demos/sensorTracking/mykeystore.jks -storepass sensorcapass -noprompt
-   ```
-
-   If you use kubectl instead of oc, the same idea applies:
-
-   ```bash
-   kubectl get secret sensorkafka-cluster-ca-cert -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/kafka-ca.crt
-   keytool -import -trustcacerts -file /tmp/kafka-ca.crt -alias kafka-ca -keystore /home/daanders/Work/Demos/sensorTracking/mykeystore.jks -storepass sensorcapass -noprompt
-   ```
-
-   Replace the secret name if your environment uses a different Kafka CA secret.
-
-3. Point the applications at the truststore by exporting the expected environment variables:
-
-   ```bash
-   export KAFKA_BOOTSTRAP_SERVERS=sensorkafka-kafka-tls-bootstrap-sensortracking.apps.ussredhat.dbarh.demo:443
-   export KAFKA_SSL_TRUSTSTORE_LOCATION=/home/daanders/Work/Demos/sensorTracking/mykeystore.jks
+   export KAFKA_BOOTSTRAP_SERVERS=<your-kafka-bootstrap>:443
+   export KAFKA_SSL_TRUSTSTORE_LOCATION=$(pwd)/mykeystore.jks
    export KAFKA_SSL_TRUSTSTORE_PASSWORD=sensorcapass
    ```
 
-4. Start the producer and consumer modules in separate terminals:
+3. Start the producer and consumer in separate terminals:
 
    ```bash
    ./mvnw -pl remoteSensor quarkus:dev
@@ -58,16 +48,88 @@ Before you start, make sure you have:
    ./mvnw -pl sensorDisplay quarkus:dev
    ```
 
-5. Open the display UI in your browser:
-
+4. Open the display UI:
    - sensorDisplay: http://localhost:8080
-   - remoteSensor: http://localhost:8081
+   - remoteSensor health: http://localhost:8081
 
-## Module overview
+## Deploying Kafka
 
-- remoteSensor publishes JSON sensor payloads to the Kafka topic sensor-data.
-- sensorDisplay consumes those events and displays them in the browser.
+The `kafka/` directory contains AMQ Streams (Strimzi) manifests managed with Kustomize. This creates the `sensortracking` namespace, installs the AMQ Streams operator, deploys a Kafka cluster, and creates the `sensor-data` topic.
 
-## Notes
+```bash
+oc apply -k kafka/
+```
 
-The Quarkus configuration already expects a TLS-enabled Kafka connection and a Java keystore truststore at the path configured in the application properties. If your Kafka broker uses a different hostname, secret name, or truststore password, update the environment variables or the application properties accordingly.
+## Certificate management
+
+The `ansible/fetch-certs.yaml` playbook fetches TLS certificates from Kafka broker endpoints and imports them into a Java keystore.
+
+Edit the `cert_urls` variable in the playbook to list your broker endpoints, then run:
+
+```bash
+ansible-playbook ansible/fetch-certs.yaml
+```
+
+Variables:
+| Variable | Default | Description |
+|---|---|---|
+| `cert_urls` | — | List of `{host, port}` endpoints to fetch certs from |
+| `keystore_path` | `../mykeystore.jks` | Path to the output JKS file |
+| `keystore_password` | `sensorcapass` | Keystore password |
+
+The playbook is idempotent — re-running it skips certificates that are already in the keystore.
+
+## Building and pushing the sensorDisplay image
+
+The `ansible/build-sensor-display.yaml` playbook builds the Quarkus application, creates a container image with Podman, and pushes it to Quay.io.
+
+```bash
+ansible-playbook ansible/build-sensor-display.yaml
+```
+
+The image is pushed to `quay.io/daanders-rh/sensor-display:latest`. Override the registry variables in the playbook to use a different registry or tag.
+
+## Deploying sensorDisplay to OpenShift
+
+The `ansible/deploy-sensor-display.yaml` playbook creates the Kafka truststore secret, applies the Kubernetes manifests from `sensorDisplay/deploy/`, restarts the deployment, and waits for rollout.
+
+```bash
+ansible-playbook ansible/deploy-sensor-display.yaml
+```
+
+The deployment manifests include:
+- **ConfigMap** — `KAFKA_BOOTSTRAP_SERVERS` and truststore location
+- **Secret** — truststore password
+- **Deployment** — pulls from Quay with `imagePullPolicy: Always`, mounts the truststore volume, and includes health probes (`/q/health/ready`, `/q/health/live`)
+- **Service** — exposes port 8080
+- **Route** — TLS edge termination
+
+## remoteSensor: bootc Image Mode (edge deployment)
+
+The remoteSensor can be built as a RHEL Image Mode (bootc) image for deployment to bare-metal edge devices. This produces a bootable OS image with the sensor app running as a systemd service.
+
+Build the bootc image:
+
+```bash
+cd remoteSensor
+./mvnw package -DskipTests
+podman build -f src/main/docker/Containerfile.bootc -t remote-sensor-bootc .
+```
+
+The bootc image:
+- Uses `registry.redhat.io/rhel10/rhel-bootc:latest` as the base
+- Installs Java 25 (headless) and firewalld
+- Runs the Quarkus app via a systemd unit (`remote-sensor.service`)
+- Reads configuration from `/etc/remote-sensor/remote-sensor.env`
+
+### remoteSensor configuration
+
+| Environment variable | Default | Description |
+|---|---|---|
+| `SENSOR_ID` | `sensor1` | Unique identifier for the sensor |
+| `SENSOR_START_LAT` | `38.8977` | Initial latitude |
+| `SENSOR_START_LNG` | `-77.0365` | Initial longitude |
+| `KAFKA_BOOTSTRAP_SERVERS` | `kafka:9092` | Kafka bootstrap address |
+| `KAFKA_SSL_TRUSTSTORE_LOCATION` | — | Path to JKS truststore |
+| `KAFKA_SSL_TRUSTSTORE_PASSWORD` | `sensorcapass` | Truststore password |
+

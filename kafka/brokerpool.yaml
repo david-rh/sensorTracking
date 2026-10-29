@@ -1,0 +1,16 @@
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  labels:
+    strimzi.io/cluster: sensorkafka
+  name: brokerpool
+  namespace: sensortracking
+spec:
+  replicas: 3
+  roles:
+  - broker
+  storage:
+    deleteClaim: true
+    size: 100Gi
+    type: persistent-claim
+

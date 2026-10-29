@@ -15,17 +15,18 @@ public class SensorPublisher {
     @ConfigProperty(name = "sensor.id")
     String sensorId;
 
-    @ConfigProperty(name = "sensor.start.lat")
+    @ConfigProperty(name = "sensor.start.lat", defaultValue = "38.8977")
     double startLat;
 
-    @ConfigProperty(name = "sensor.start.lng")
+    @ConfigProperty(name = "sensor.start.lng", defaultValue = "-77.0365")
     double startLng;
 
     private SensorData sensorData;
 
     @PostConstruct
     void initSensorData() {
-        sensorData = new SensorData(sensorId, startLat, startLng, 0.0, 0.0, 0.0, 45);
+        double heading = Math.random() * 360;
+        sensorData = new SensorData(sensorId, startLat, startLng, 0.0, 0.0, 0.0, heading);
     }
 
     @Outgoing("sensor-data")

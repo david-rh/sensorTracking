@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sensor-display-config
+  namespace: sensortracking
+data:
+  KAFKA_BOOTSTRAP_SERVERS: sensorkafka-kafka-tls-bootstrap-sensortracking.apps.ocp1.casaanderson.home:443
+  KAFKA_SSL_TRUSTSTORE_LOCATION: /etc/kafka/truststore/mykeystore.jks

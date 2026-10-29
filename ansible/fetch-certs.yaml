@@ -1,0 +1,67 @@
+---
+- name: Fetch TLS certificates and add to Java keystore
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    cert_urls:
+      - host: kafka-bootstrap.example.com
+        port: 443
+    keystore_path: "{{ playbook_dir }}/../mykeystore.jks"
+    keystore_password: sensorcapass
+
+  tasks:
+    - name: Create keystore directory if needed
+      ansible.builtin.file:
+        path: "{{ keystore_path | dirname }}"
+        state: directory
+        mode: "0755"
+
+    - name: Fetch certificate from each endpoint
+      ansible.builtin.shell:
+        cmd: >
+          openssl s_client -connect {{ item.host }}:{{ item.port }}
+          -servername {{ item.host }} </dev/null 2>/dev/null
+          | openssl x509
+      register: fetched_certs
+      loop: "{{ cert_urls }}"
+      loop_control:
+        label: "{{ item.host }}:{{ item.port }}"
+      changed_when: false
+
+    - name: Write certificates to temp files
+      ansible.builtin.copy:
+        content: "{{ item.stdout }}"
+        dest: "/tmp/{{ item.item.host }}_{{ item.item.port }}.pem"
+        mode: "0644"
+      loop: "{{ fetched_certs.results }}"
+      loop_control:
+        label: "{{ item.item.host }}:{{ item.item.port }}"
+      when: item.stdout | length > 0
+
+    - name: Import certificates into keystore
+      ansible.builtin.shell:
+        cmd: >
+          keytool -list -keystore {{ keystore_path }}
+          -storepass {{ keystore_password }}
+          -alias {{ item.item.host }}_{{ item.item.port }} 2>/dev/null
+          || keytool -importcert -trustcacerts -noprompt
+          -keystore {{ keystore_path }}
+          -storepass {{ keystore_password }}
+          -alias {{ item.item.host }}_{{ item.item.port }}
+          -file /tmp/{{ item.item.host }}_{{ item.item.port }}.pem
+      loop: "{{ fetched_certs.results }}"
+      loop_control:
+        label: "{{ item.item.host }}:{{ item.item.port }}"
+      when: item.stdout | length > 0
+      register: import_result
+      changed_when: "'Certificate was added to keystore' in import_result.stderr | default('')"
+
+    - name: Clean up temp certificate files
+      ansible.builtin.file:
+        path: "/tmp/{{ item.host }}_{{ item.port }}.pem"
+        state: absent
+      loop: "{{ cert_urls }}"
+      loop_control:
+        label: "{{ item.host }}:{{ item.port }}"

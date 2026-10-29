@@ -1,0 +1,18 @@
+FROM registry.redhat.io/rhel10/rhel-bootc:latest
+
+LABEL description="Remote Sensor GPS telemetry publisher - RHEL Image Mode"
+
+RUN dnf install -y java-25-openjdk-headless firewalld && dnf clean all
+
+RUN firewall-offline-cmd --add-port=8080/tcp
+
+RUN mkdir -p /opt/remote-sensor /etc/remote-sensor
+
+COPY target/quarkus-app/ /opt/remote-sensor/
+
+COPY src/main/bootc/remote-sensor.service /etc/systemd/system/remote-sensor.service
+COPY src/main/bootc/remote-sensor.env /etc/remote-sensor/remote-sensor.env
+
+RUN systemctl enable remote-sensor.service firewalld
+
+CMD ["/sbin/init"]

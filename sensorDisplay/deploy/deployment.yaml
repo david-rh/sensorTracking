@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sensor-display
+  namespace: sensortracking
+  labels:
+    app: sensor-display
+    app.openshift.io/runtime: quarkus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sensor-display
+  template:
+    metadata:
+      labels:
+        app: sensor-display
+    spec:
+      containers:
+        - name: sensor-display
+          image: quay.io/daanders-rh/sensor-display:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: sensor-display-config
+            - secretRef:
+                name: sensor-display-secret
+          volumeMounts:
+            - name: kafka-truststore
+              mountPath: /etc/kafka/truststore
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /q/health/ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /q/health/live
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+      volumes:
+        - name: kafka-truststore
+          secret:
+            secretName: kafka-truststore

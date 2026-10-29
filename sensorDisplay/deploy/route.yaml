@@ -1,0 +1,16 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: sensor-display
+  namespace: sensortracking
+  labels:
+    app: sensor-display
+spec:
+  to:
+    kind: Service
+    name: sensor-display
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

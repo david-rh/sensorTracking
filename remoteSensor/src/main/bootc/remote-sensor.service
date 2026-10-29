@@ -1,0 +1,14 @@
+[Unit]
+Description=Remote Sensor - GPS Telemetry Publisher
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/java -jar /opt/remote-sensor/quarkus-run.jar
+EnvironmentFile=-/etc/remote-sensor/remote-sensor.env
+WorkingDirectory=/opt/remote-sensor
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

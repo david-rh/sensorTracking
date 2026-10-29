@@ -1,0 +1,43 @@
+---
+- name: Build and push sensorDisplay image to Quay
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    project_dir: "{{ playbook_dir }}/../sensorDisplay"
+    registry: quay.io
+    registry_org: daanders-rh
+    image_name: sensor-display
+    image_tag: latest
+    full_image: "{{ registry }}/{{ registry_org }}/{{ image_name }}:{{ image_tag }}"
+
+  tasks:
+    - name: Build Quarkus application
+      ansible.builtin.command:
+        cmd: ./mvnw package -DskipTests
+        chdir: "{{ project_dir }}"
+      changed_when: true
+
+    - name: Build container image
+      ansible.builtin.command:
+        cmd: >
+          podman build
+          -f src/main/docker/Dockerfile.jvm
+          -t {{ image_name }}:{{ image_tag }} .
+        chdir: "{{ project_dir }}"
+      changed_when: true
+
+    - name: Tag image for Quay
+      ansible.builtin.command:
+        cmd: podman tag {{ image_name }}:{{ image_tag }} {{ full_image }}
+      changed_when: true
+
+    - name: Push image to Quay
+      ansible.builtin.command:
+        cmd: podman push {{ full_image }}
+      changed_when: true
+
+    - name: Display pushed image
+      ansible.builtin.debug:
+        msg: "Image pushed to {{ full_image }}"
