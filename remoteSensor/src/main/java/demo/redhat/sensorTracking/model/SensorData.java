@@ -19,6 +19,7 @@ public class SensorData {
     private double acc;
     private double speed;
     private double heading;
+    private String message;
 
     public SensorData() {}
 
@@ -40,6 +41,7 @@ public class SensorData {
     public double getAcc()         { return acc; }
     public double getSpeed()       { return speed; }
     public double getHeading()     { return heading; }
+    public String getMessage()     { return message; }
 
     public void setId(String id)           { this.id = id; }
     public void setLat(double lat)         { this.lat = lat; }
@@ -48,6 +50,7 @@ public class SensorData {
     public void setAcc(double acc)         { this.acc = acc; }
     public void setSpeed(double speed)     { this.speed = speed; }
     public void setHeading(double heading) { this.heading = heading; }
+    public void setMessage(String message) { this.message = message; }
 
     @Override
     public String toString() {
@@ -59,6 +62,7 @@ public class SensorData {
                 ", acc=" + acc +
                 ", speed=" + speed +
                 ", heading=" + heading +
+                ", message='" + message + '\'' +
                 '}';
     }
 }

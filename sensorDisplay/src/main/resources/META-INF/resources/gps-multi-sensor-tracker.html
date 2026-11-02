@@ -529,6 +529,16 @@
           </div>
         </div>
 
+        <!-- Message -->
+        <div class="sidebar-section" id="messageSection" style="display:none;">
+          <div class="section-title">Message</div>
+          <div id="dMessage" style="
+            background:#2a2d33;border:1px solid #3c3f42;border-left:3px solid #f0ab00;
+            border-radius:4px;padding:10px 12px;font-size:13px;color:#f0ab00;
+            font-weight:500;word-break:break-word;
+          "></div>
+        </div>
+
         <!-- Speed alert -->
         <div class="sidebar-section speed-alert" id="speedAlert">
           <div class="pf-v5-c-alert pf-m-warning pf-m-inline" style="--pf-v5-c-alert--BackgroundColor:#2a2d33;">
@@ -699,6 +709,16 @@ function refreshDetailPanel(id) {
   document.getElementById('dUpdates').textContent  = s.updateCount;
   document.getElementById('dHistCount').textContent = s.updateCount + ' pts';
 
+  // Message
+  const msgSection = document.getElementById('messageSection');
+  const msgEl = document.getElementById('dMessage');
+  if (s.message) {
+    msgSection.style.display = '';
+    msgEl.textContent = s.message;
+  } else {
+    msgSection.style.display = 'none';
+  }
+
   // Speed alert
   const alertEl = document.getElementById('speedAlert');
   if (s.speed > 45) {
@@ -712,20 +732,20 @@ function refreshDetailPanel(id) {
   const btn = document.getElementById('btnToggleSelected');
   btn.textContent = s.isTracking ? 'Pause Selected' : 'Resume Selected';
 
-  // History — rebuild only last 15 items
+  // History — show all entries, newest first
   const list = document.getElementById('dHistoryList');
   list.innerHTML = '';
-  const slice = s.history.slice(-15).reverse();
-  slice.forEach((h, i) => {
+  for (let i = s.history.length - 1; i >= 0; i--) {
+    const h = s.history[i];
     const item = document.createElement('div');
     item.className = 'history-item';
     item.innerHTML = `
-      <span class="history-item__index">#${s.history.length - i}</span>
+      <span class="history-item__index">#${i + 1}</span>
       <span class="history-item__coords">${h.lat.toFixed(4)}, ${h.lng.toFixed(4)}</span>
       <span class="history-item__time">${h.time}</span>
     `;
     list.appendChild(item);
-  });
+  }
 }
 
 // ── Per-sensor update ──────────────────────────────────────────────────────
@@ -761,6 +781,16 @@ function updateSensor(id) {
   } else {
     s.marker.setLatLng(pos);
   }
+
+  // Update tooltip with message
+  let tooltipHtml = `<b>${s.name}</b><br/>${s.id}`;
+  if (s.message) {
+    tooltipHtml += `<br/><span style="color:#f0ab00;font-weight:600;">${s.message}</span>`;
+  }
+  s.marker.unbindTooltip();
+  s.marker.bindTooltip(tooltipHtml, {
+    permanent: !!s.message, direction: 'top', className: 'sensor-tooltip'
+  });
 
   // Trail
   s.trailPoints.push(pos);

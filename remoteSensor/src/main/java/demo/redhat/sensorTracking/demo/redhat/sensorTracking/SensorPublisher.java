@@ -23,6 +23,10 @@ public class SensorPublisher {
 
     private SensorData sensorData;
 
+    public SensorData getSensorData() {
+        return sensorData;
+    }
+
     @PostConstruct
     void initSensorData() {
         double heading = Math.random() * 360;
@@ -48,6 +52,7 @@ public class SensorPublisher {
         sensorData.setAlt(100 + Math.random() * 10);
 
         SensorData updated = new SensorData(sensorData.getId(), sensorData.getLat(), sensorData.getLng(), sensorData.getAlt(), sensorData.getAcc(), sensorData.getSpeed(), sensorData.getHeading());
+        updated.setMessage(sensorData.getMessage());
         return KafkaRecord.of(updated.getId(), updated);
     }
         
