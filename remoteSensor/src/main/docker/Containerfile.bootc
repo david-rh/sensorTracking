@@ -1,18 +1,25 @@
-FROM registry.redhat.io/rhel10/rhel-bootc:latest
+# Base the image off of the official RHEL 9.6 bootc image
+FROM registry.redhat.io/rhel9-eus/rhel-9.6-bootc:9.6
 
-LABEL description="Remote Sensor GPS telemetry publisher - RHEL Image Mode"
+LABEL description="Remote Sensor - RHEL Image Mode"
 
-RUN dnf install -y java-25-openjdk-headless firewalld && dnf clean all
+ARG RHSM_ORG
+ARG RHSM_ACTIVATION_KEY
 
-RUN firewall-offline-cmd --add-port=8080/tcp
+# Register with Red Hat, install packages, then unregister
+RUN subscription-manager clean && \
+    subscription-manager register --org="${RHSM_ORG}" --activationkey="${RHSM_ACTIVATION_KEY}" --force && \
+    dnf config-manager --add-repo https://rpm.flightctl.io/flightctl-lab.repo && \
+    dnf -y install flightctl-agent-0:1.1.0~main~118~g55455431.lab-1.el9.x86_64 && \
+    systemctl enable flightctl-agent.service && \
+    systemctl mask bootc-fetch-apply-updates.timer && \
+    dnf clean all && \
+    subscription-manager unregister && \
+    subscription-manager clean
 
-RUN mkdir -p /opt/remote-sensor /etc/remote-sensor
 
-COPY target/quarkus-app/ /opt/remote-sensor/
+# Copy early binding enrollment config.yaml into image
+COPY config.yaml /etc/flightctl/config.yaml
 
-COPY src/main/bootc/remote-sensor.service /etc/systemd/system/remote-sensor.service
-COPY src/main/bootc/remote-sensor.env /etc/remote-sensor/remote-sensor.env
-
-RUN systemctl enable remote-sensor.service firewalld
-
-CMD ["/sbin/init"]
+# DO NOT DO THIS IN PRODUCTION ENVIRONMENTS (for lab troubleshooting only)
+# RUN echo "root:<PASSWORD>" | chpasswd

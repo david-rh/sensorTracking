@@ -1,0 +1,13 @@
+apiVersion: v1alpha1
+kind: Device
+metadata:
+  # The device name is assigned by flightctl on enrollment.
+  # Use 'flightctl get devices' to find the device name, then
+  # apply labels with: flightctl apply -f device-example.yaml
+  name: <DEVICE_NAME>
+  labels:
+    fleet: remote-sensor
+    sensor-id: sensor-1
+    sensor-start-lat: "38.8977"
+    sensor-start-lng: "-77.0365"
+spec: {}

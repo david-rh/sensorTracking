@@ -1,0 +1,58 @@
+---
+- name: Apply flightctl Fleet for remote sensor devices
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    project_dir: "{{ playbook_dir }}/.."
+    fleet_manifest: "{{ project_dir }}/flightctl/fleet.yaml"
+    truststore_path: "{{ project_dir }}/mykeystore.jks"
+
+  tasks:
+    - name: Verify truststore exists
+      ansible.builtin.stat:
+        path: "{{ truststore_path }}"
+      register: truststore_file
+
+    - name: Fail if truststore not found
+      ansible.builtin.fail:
+        msg: "Truststore not found at {{ truststore_path }}. Run ansible-playbook ansible/fetch-certs.yaml first."
+      when: not truststore_file.stat.exists
+
+    - name: Base64 encode the truststore
+      ansible.builtin.command:
+        cmd: base64 -w0 {{ truststore_path }}
+      register: truststore_b64
+      changed_when: false
+
+    - name: Read fleet manifest
+      ansible.builtin.slurp:
+        src: "{{ fleet_manifest }}"
+      register: fleet_content
+
+    - name: Inject truststore into fleet manifest
+      ansible.builtin.copy:
+        content: "{{ fleet_content.content | b64decode | replace('REPLACE_WITH_BASE64_ENCODED_TRUSTSTORE', truststore_b64.stdout) }}"
+        dest: /tmp/fleet-rendered.yaml
+        mode: "0600"
+
+    - name: Apply fleet manifest
+      ansible.builtin.command:
+        cmd: flightctl apply -f /tmp/fleet-rendered.yaml
+      changed_when: true
+
+    - name: Clean up rendered manifest
+      ansible.builtin.file:
+        path: /tmp/fleet-rendered.yaml
+        state: absent
+
+    - name: Display fleet status
+      ansible.builtin.command:
+        cmd: flightctl get fleet remote-sensor-fleet
+      register: fleet_status
+      changed_when: false
+
+    - name: Show fleet
+      ansible.builtin.debug:
+        msg: "{{ fleet_status.stdout }}"

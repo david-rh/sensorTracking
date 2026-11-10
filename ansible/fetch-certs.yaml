@@ -9,7 +9,7 @@
       - host: kafka-bootstrap.example.com
         port: 443
     keystore_path: "{{ playbook_dir }}/../mykeystore.jks"
-    keystore_password: sensorcapass
+    keystore_password: "{{ lookup('env', 'KEYSTORE_PASSWORD') | default('changeit', true) }}"
 
   tasks:
     - name: Create keystore directory if needed

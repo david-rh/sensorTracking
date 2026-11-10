@@ -41,5 +41,11 @@ nb-configuration.xml
 
 # Plugin directory
 /.quarkus/cli/plugins/
-# TLS Certificates
+# TLS Certificates and Keystores
 .certs/
+*.crt
+*.jks
+
+# flightctl enrollment config
+remoteSensor/flightctl-enrollment/
+config.yaml

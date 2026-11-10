@@ -1,0 +1,151 @@
+---
+- name: Convert bootc image to qcow2 and create OpenShift DataVolume
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    project_dir: "{{ playbook_dir }}/../remoteSensor"
+    output_dir: "{{ project_dir }}/output"
+    registry: quay.io
+    registry_org: daanders-rh
+    source_image: "{{ registry }}/{{ registry_org }}/remote-sensor-image:latest"
+    disk_image: "{{ registry }}/{{ registry_org }}/remote-sensor-disk:latest"
+    namespace: sensors
+    dv_name: remote-sensor-boot
+    dv_size: 20Gi
+    redhat_registry_service_account_id: "{{ lookup('env', 'REGISTRY_SERVICE_ACCOUNT_ID') }}"
+    redhat_registry_token: "{{ lookup('env', 'REGISTRY_SERVICE_ACCOUNT_TOKEN') }}"
+
+  tasks:
+    # ── Step 1: Convert bootc container to qcow2 ──
+
+    - name: Create output directory
+      ansible.builtin.file:
+        path: "{{ output_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Log into Red Hat Container Registry
+      ansible.builtin.command:
+        cmd: >
+          podman login registry.redhat.io
+          --username {{ redhat_registry_service_account_id }}
+          --password {{ redhat_registry_token }}
+      become: true
+      changed_when: false
+
+    - name: Pull source bootc image as root
+      ansible.builtin.command:
+        cmd: podman pull {{ source_image }}
+      become: true
+      changed_when: true
+
+    - name: Build qcow2 from bootc image
+      ansible.builtin.command:
+        cmd: >
+          podman run --rm -i --privileged
+          --security-opt label=type:unconfined_t
+          -v {{ output_dir }}:/output
+          -v /var/lib/containers/storage:/var/lib/containers/storage
+          registry.redhat.io/rhel9/bootc-image-builder:latest
+          --type qcow2
+          --local
+          {{ source_image }}
+      become: true
+      changed_when: true
+
+    - name: Fix output directory ownership
+      ansible.builtin.file:
+        path: "{{ output_dir }}"
+        state: directory
+        recurse: true
+        owner: "{{ lookup('env', 'USER') }}"
+      become: true
+
+    - name: Verify qcow2 was produced
+      ansible.builtin.stat:
+        path: "{{ output_dir }}/qcow2/disk.qcow2"
+      register: qcow2_file
+
+    - name: Fail if qcow2 was not produced
+      ansible.builtin.fail:
+        msg: "bootc-image-builder did not produce {{ output_dir }}/qcow2/disk.qcow2"
+      when: not qcow2_file.stat.exists
+
+    # ── Step 2: Package qcow2 as container image and push ──
+
+    - name: Create Containerfile for disk image
+      ansible.builtin.copy:
+        content: |
+          FROM scratch
+          COPY disk.qcow2 /disk/
+        dest: "{{ output_dir }}/qcow2/Containerfile.disk"
+        mode: "0644"
+
+    - name: Build disk container image
+      ansible.builtin.command:
+        cmd: >
+          podman build
+          -f Containerfile.disk
+          -t {{ disk_image }} .
+        chdir: "{{ output_dir }}/qcow2"
+      changed_when: true
+
+    - name: Push disk image to Quay
+      ansible.builtin.command:
+        cmd: podman push {{ disk_image }}
+      changed_when: true
+
+    # ── Step 3: Create DataVolume in OpenShift ──
+
+    - name: Ensure namespace exists
+      ansible.builtin.command:
+        cmd: oc create namespace {{ namespace }}
+      register: ns_result
+      changed_when: ns_result.rc == 0
+      failed_when: ns_result.rc != 0 and 'AlreadyExists' not in ns_result.stderr
+
+    - name: Apply DataVolume manifest
+      ansible.builtin.command:
+        cmd: oc apply -f -
+        stdin: |
+          apiVersion: cdi.kubevirt.io/v1beta1
+          kind: DataVolume
+          metadata:
+            name: {{ dv_name }}
+            namespace: {{ namespace }}
+          spec:
+            source:
+              registry:
+                url: docker://{{ disk_image }}
+            storage:
+              resources:
+                requests:
+                  storage: {{ dv_size }}
+      changed_when: true
+
+    # ── Step 4: Wait for DataVolume to succeed ──
+
+    - name: Wait for DataVolume import to complete
+      ansible.builtin.command:
+        cmd: >
+          oc get dv {{ dv_name }}
+          -n {{ namespace }}
+          -o jsonpath='{.status.phase}'
+      register: dv_phase
+      until: dv_phase.stdout == 'Succeeded'
+      retries: 60
+      delay: 10
+      changed_when: false
+
+    - name: Display DataVolume status
+      ansible.builtin.debug:
+        msg: "DataVolume {{ dv_name }} is {{ dv_phase.stdout }} ({{ dv_size }}) in namespace {{ namespace }}"
+
+    # ── Step 5: Clean up ──
+
+    - name: Remove local output directory
+      ansible.builtin.file:
+        path: "{{ output_dir }}"
+        state: absent

@@ -1,0 +1,59 @@
+apiVersion: v1beta1
+kind: Fleet
+metadata:
+  name: remote-sensor-fleet
+spec:
+  selector:
+    matchLabels:
+      fleet: remote-sensor
+  template:
+    metadata:
+      labels:
+        fleet: remote-sensor
+    spec:
+      applications:
+        - name: remote-sensor-app
+          runAs: flightctl
+          inline:
+            - path: remote-sensor.container
+              contentType: text/plain
+              content: |
+                [Unit]
+                Description=Remote Sensor - GPS Telemetry Publisher
+                After=network-online.target
+                Wants=network-online.target
+
+                [Container]
+                Image=quay.io/daanders-rh/remote-sensor:latest
+                Network=host
+                EnvironmentFile=/etc/remote-sensor/remote-sensor.env
+                Volume=/etc/remote-sensor/mykeystore.jks:/etc/remote-sensor/mykeystore.jks:ro,z
+
+                [Service]
+                ExecStartPre=/bin/bash -c 'base64 -d /etc/remote-sensor/mykeystore.jks.b64 > /etc/remote-sensor/mykeystore.jks'
+                Restart=on-failure
+                RestartSec=10
+
+                [Install]
+                WantedBy=multi-user.target
+              contentEncoding: plain
+          appType: quadlet
+      config:
+        - name: remote-sensor-env
+          configType: inline
+          inline:
+            - path: /etc/remote-sensor/remote-sensor.env
+              contentType: text/plain
+              content: |
+                SENSOR_ID={{ getOrDefault .metadata.labels "sensor-id" "sensor-unknown" }}
+                SENSOR_START_LAT={{ getOrDefault .metadata.labels "sensor-start-lat" "38.8977" }}
+                SENSOR_START_LNG={{ getOrDefault .metadata.labels "sensor-start-lng" "-77.0365" }}
+                KAFKA_BOOTSTRAP_SERVERS=<KAFKA_BOOTSTRAP_SERVER>:443
+                KAFKA_SSL_TRUSTSTORE_LOCATION=/etc/remote-sensor/mykeystore.jks
+                KAFKA_SSL_TRUSTSTORE_PASSWORD=<REPLACE_ME>
+        - name: kafka-truststore
+          configType: inline
+          inline:
+            - path: /etc/remote-sensor/mykeystore.jks.b64
+              contentType: text/plain
+              content: "REPLACE_WITH_BASE64_ENCODED_TRUSTSTORE"

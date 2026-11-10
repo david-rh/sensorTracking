@@ -1,0 +1,102 @@
+---
+- name: Build and push remoteSensor bootc image to Quay
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    project_dir: "{{ playbook_dir }}/../remoteSensor"
+    docker_dir: "{{ project_dir }}/src/main/docker"
+    flightctl_dir: "{{ project_dir }}/flightctl"
+    agent_api: https://agent-api.edgemgmt.apps.ussredhat.dbarh.demo
+    cert_expiration: 365d
+    cert_name: remote-sensor
+    registry: quay.io
+    registry_org: daanders-rh
+    image_name: remote-sensor-image
+    image_tag: latest
+    full_image: "{{ registry }}/{{ registry_org }}/{{ image_name }}:{{ image_tag }}"
+    rhsm_org: "{{ lookup('env', 'RHSM_ORG') }}"
+    rhsm_activation_key: "{{ lookup('env', 'RHSM_ACTIVATION_KEY') }}"
+
+  tasks:
+    - name: Create enrollment directory
+      ansible.builtin.file:
+        path: "{{ flightctl_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Request enrollment certificate from edge manager
+      ansible.builtin.command:
+        cmd: >
+          flightctl certificate request
+          --signer=enrollment
+          --expiration={{ cert_expiration }}
+          --output=embedded
+          --output-dir={{ flightctl_dir }}
+      register: cert_result
+      changed_when: true
+
+    - name: Save enrollment config.yaml
+      ansible.builtin.copy:
+        content: "{{ cert_result.stdout }}"
+        dest: "{{ flightctl_dir }}/config.yaml"
+        mode: "0600"
+
+    - name: Verify enrollment config.yaml was saved
+      ansible.builtin.stat:
+        path: "{{ flightctl_dir }}/config.yaml"
+      register: config_file
+
+    - name: Fail if config.yaml was not saved
+      ansible.builtin.fail:
+        msg: "flightctl certificate request did not produce config.yaml in {{ flightctl_dir }}"
+      when: not config_file.stat.exists
+
+    - name: Fail if RHSM credentials are not set
+      ansible.builtin.fail:
+        msg: "Set RHSM_ORG and RHSM_ACTIVATION_KEY environment variables"
+      when: rhsm_org == '' or rhsm_activation_key == ''
+
+    - name: Copy config.yaml into build context
+      ansible.builtin.copy:
+        src: "{{ flightctl_dir }}/config.yaml"
+        dest: "{{ docker_dir }}/config.yaml"
+        mode: "0600"
+        remote_src: true
+
+    - name: Build bootc container image
+      ansible.builtin.command:
+        cmd: >
+          podman build
+          --build-arg RHSM_ORG={{ rhsm_org }}
+          --build-arg RHSM_ACTIVATION_KEY={{ rhsm_activation_key }}
+          -f Containerfile.bootc
+          -t {{ image_name }}:{{ image_tag }} .
+        chdir: "{{ docker_dir }}"
+      changed_when: true
+
+    - name: Tag image for Quay
+      ansible.builtin.command:
+        cmd: podman tag {{ image_name }}:{{ image_tag }} {{ full_image }}
+      changed_when: true
+
+    - name: Push image to Quay
+      ansible.builtin.command:
+        cmd: podman push {{ full_image }}
+      changed_when: true
+
+    - name: Clean up enrollment artifacts
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ docker_dir }}/config.yaml"
+        - "{{ flightctl_dir }}/config.yaml"
+        - "{{ flightctl_dir }}/{{ cert_name }}.key"
+        - "{{ flightctl_dir }}/{{ cert_name }}.crt"
+        - "{{ flightctl_dir }}/ca.crt"
+
+    - name: Display pushed image
+      ansible.builtin.debug:
+        msg: "Bootc image pushed to {{ full_image }}"
