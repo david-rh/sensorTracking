@@ -44,8 +44,15 @@ nb-configuration.xml
 # TLS Certificates and Keystores
 .certs/
 *.crt
+*.key
 *.jks
 
 # flightctl enrollment config
 remoteSensor/flightctl-enrollment/
 config.yaml
+
+# Environment-specific config (use .template copies as starting point)
+sensorDisplay/deploy/secret.yaml
+sensorDisplay/deploy/configmap.yaml
+flightctl/fleet.yaml
+remoteSensor/src/main/bootc/remote-sensor.env

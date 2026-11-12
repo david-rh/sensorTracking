@@ -1,0 +1,180 @@
+---
+- name: Deploy remote sensor VMs with Service and Route
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    namespace: sensors
+    datasource_name: remote-sensor-boot
+    disk_size: 20Gi
+    cloud_config_path: "{{ playbook_dir }}/../cloud-config.yaml"
+    sensor_vms:
+      - name: remote-sensor-01
+        sensor_id: sensor-01
+      - name: remote-sensor-02
+        sensor_id: sensor-02
+
+  tasks:
+    # ── Step 1: Ensure namespace exists ──
+
+    - name: Ensure namespace exists
+      ansible.builtin.command:
+        cmd: oc create namespace {{ namespace }}
+      register: ns_result
+      changed_when: ns_result.rc == 0
+      failed_when: ns_result.rc != 0 and 'AlreadyExists' not in ns_result.stderr
+
+    # ── Step 2: Create shared cloud-init Secret ──
+
+    - name: Check if cloud-init secret exists
+      ansible.builtin.command:
+        cmd: oc get secret remote-sensor-cloudinit -n {{ namespace }}
+      register: cloudinit_check
+      changed_when: false
+      failed_when: false
+
+    - name: Create cloud-init secret from cloud-config.yaml
+      ansible.builtin.command:
+        cmd: >
+          oc create secret generic remote-sensor-cloudinit
+          --from-file=userdata={{ cloud_config_path }}
+          -n {{ namespace }}
+      when: cloudinit_check.rc != 0
+      changed_when: true
+
+    # ── Step 3: Create VirtualMachines ──
+
+    - name: Create VirtualMachine for each sensor
+      ansible.builtin.command:
+        cmd: oc apply -f -
+        stdin: |
+          apiVersion: kubevirt.io/v1
+          kind: VirtualMachine
+          metadata:
+            name: {{ item.name }}
+            namespace: {{ namespace }}
+            labels:
+              app: remote-sensor
+              sensor-id: {{ item.sensor_id }}
+          spec:
+            runStrategy: RerunOnFailure
+            dataVolumeTemplates:
+              - metadata:
+                  name: {{ item.name }}-rootdisk
+                spec:
+                  sourceRef:
+                    kind: DataSource
+                    name: {{ datasource_name }}
+                    namespace: {{ namespace }}
+                  storage:
+                    resources:
+                      requests:
+                        storage: {{ disk_size }}
+            template:
+              metadata:
+                labels:
+                  app: remote-sensor
+                  sensor-id: {{ item.sensor_id }}
+              spec:
+                domain:
+                  cpu:
+                    cores: 1
+                  memory:
+                    guest: 1024M
+                  devices:
+                    disks:
+                      - name: rootdisk
+                        disk:
+                          bus: virtio
+                      - name: cloudinitdisk
+                        disk:
+                          bus: virtio
+                volumes:
+                  - name: rootdisk
+                    dataVolume:
+                      name: {{ item.name }}-rootdisk
+                  - name: cloudinitdisk
+                    cloudInitConfigDrive:
+                      secretRef:
+                        name: remote-sensor-cloudinit
+      loop: "{{ sensor_vms }}"
+      loop_control:
+        label: "{{ item.name }}"
+      changed_when: true
+
+    # ── Step 4: Create Services ──
+
+    - name: Create Service for each sensor VM
+      ansible.builtin.command:
+        cmd: oc apply -f -
+        stdin: |
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: {{ item.name }}
+            namespace: {{ namespace }}
+            labels:
+              app: remote-sensor
+              sensor-id: {{ item.sensor_id }}
+          spec:
+            selector:
+              vm.kubevirt.io/name: {{ item.name }}
+            ports:
+              - port: 8080
+                targetPort: 8080
+                protocol: TCP
+                name: http
+      loop: "{{ sensor_vms }}"
+      loop_control:
+        label: "{{ item.name }}"
+      changed_when: true
+
+    # ── Step 5: Create Routes ──
+
+    - name: Create Route for each sensor VM
+      ansible.builtin.command:
+        cmd: oc apply -f -
+        stdin: |
+          apiVersion: route.openshift.io/v1
+          kind: Route
+          metadata:
+            name: {{ item.name }}
+            namespace: {{ namespace }}
+            labels:
+              app: remote-sensor
+              sensor-id: {{ item.sensor_id }}
+          spec:
+            to:
+              kind: Service
+              name: {{ item.name }}
+            port:
+              targetPort: http
+            tls:
+              termination: edge
+              insecureEdgeTerminationPolicy: Redirect
+      loop: "{{ sensor_vms }}"
+      loop_control:
+        label: "{{ item.name }}"
+      changed_when: true
+
+    # ── Step 6: Display results ──
+
+    - name: Get Route URLs
+      ansible.builtin.command:
+        cmd: >
+          oc get route {{ item.name }}
+          -n {{ namespace }}
+          -o jsonpath='{.spec.host}'
+      loop: "{{ sensor_vms }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: route_hosts
+      changed_when: false
+
+    - name: Display VM Route URLs
+      ansible.builtin.debug:
+        msg: "{{ item.item.name }} ({{ item.item.sensor_id }}) → https://{{ item.stdout }}"
+      loop: "{{ route_hosts.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
