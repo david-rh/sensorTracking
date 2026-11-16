@@ -8,12 +8,19 @@
     namespace: sensors
     datasource_name: remote-sensor-boot
     disk_size: 20Gi
-    cloud_config_path: "{{ playbook_dir }}/../cloud-config.yaml"
+    enrollment_tmp_dir: /tmp/remote-sensor-cloudinit
+    cloud_config_path: /tmp/remote-sensor-cloudinit/cloud-config.yaml
+    cert_expiration: 365d
+    regenerate_cloudinit: false
     sensor_vms:
       - name: remote-sensor-01
         sensor_id: sensor-01
       - name: remote-sensor-02
         sensor_id: sensor-02
+      - name: remote-sensor-03
+        sensor_id: sensor-03
+      - name: remote-sensor-04
+        sensor_id: sensor-04
 
   tasks:
     # ── Step 1: Ensure namespace exists ──
@@ -26,6 +33,10 @@
       failed_when: ns_result.rc != 0 and 'AlreadyExists' not in ns_result.stderr
 
     # ── Step 2: Create shared cloud-init Secret ──
+    #
+    # The cloud-config is generated at run time rather than committed: it embeds
+    # a flightctl enrollment private key. It is rendered under /tmp and removed
+    # once the secret exists, so no credential is left in the working tree.
 
     - name: Check if cloud-init secret exists
       ansible.builtin.command:
@@ -34,14 +45,73 @@
       changed_when: false
       failed_when: false
 
-    - name: Create cloud-init secret from cloud-config.yaml
+    - name: Decide whether the cloud-init secret needs generating
+      ansible.builtin.set_fact:
+        need_cloudinit: "{{ cloudinit_check.rc != 0 or regenerate_cloudinit | bool }}"
+
+    - name: Remove existing cloud-init secret before regenerating
       ansible.builtin.command:
         cmd: >
-          oc create secret generic remote-sensor-cloudinit
-          --from-file=userdata={{ cloud_config_path }}
+          oc delete secret remote-sensor-cloudinit
           -n {{ namespace }}
-      when: cloudinit_check.rc != 0
+          --ignore-not-found
+      when: regenerate_cloudinit | bool
       changed_when: true
+
+    - name: Generate cloud-init secret from a fresh enrollment certificate
+      when: need_cloudinit
+      block:
+        - name: Create temporary enrollment directory
+          ansible.builtin.file:
+            path: "{{ enrollment_tmp_dir }}"
+            state: directory
+            mode: "0700"
+
+        - name: Request enrollment certificate from edge manager
+          ansible.builtin.command:
+            cmd: >
+              flightctl certificate request
+              --signer=enrollment
+              --expiration={{ cert_expiration }}
+              --output=embedded
+              --output-dir={{ enrollment_tmp_dir }}
+          register: cert_result
+          changed_when: true
+
+        - name: Fail if no enrollment config was returned
+          ansible.builtin.fail:
+            msg: >
+              flightctl certificate request returned no enrollment config.
+              Run 'flightctl login' against the edge manager and try again.
+          when: cert_result.stdout | length == 0
+
+        - name: Render cloud-config.yaml
+          ansible.builtin.copy:
+            content: |
+              #cloud-config
+              write_files:
+              - path: /etc/flightctl/config.yaml
+                content: {{ cert_result.stdout | b64encode }}
+                encoding: b64
+                permissions: '0600'
+            dest: "{{ cloud_config_path }}"
+            mode: "0600"
+
+        - name: Create cloud-init secret from rendered cloud-config
+          ansible.builtin.command:
+            cmd: >
+              oc create secret generic remote-sensor-cloudinit
+              --from-file=userdata={{ cloud_config_path }}
+              -n {{ namespace }}
+          changed_when: true
+
+      always:
+        # Also clears the client-enrollment.{crt,key} and ca.crt that
+        # 'certificate request' drops alongside the config.
+        - name: Clean up enrollment artifacts
+          ansible.builtin.file:
+            path: "{{ enrollment_tmp_dir }}"
+            state: absent
 
     # ── Step 3: Create VirtualMachines ──
 
