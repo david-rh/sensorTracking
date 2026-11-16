@@ -50,6 +50,7 @@ nb-configuration.xml
 # flightctl enrollment config
 remoteSensor/flightctl-enrollment/
 config.yaml
+cloud-config.yaml
 
 # Environment-specific config (use .template copies as starting point)
 sensorDisplay/deploy/secret.yaml

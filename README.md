@@ -173,7 +173,19 @@ For each entry the playbook creates:
 - A **VirtualMachine** with a cloned PVC from the `remote-sensor-boot` DataSource
 - A **Service** on port 8080
 - A **Route** with TLS edge termination
-- A shared **cloud-init Secret** (from `cloud-config.yaml`) for flightctl enrollment
+- A shared **cloud-init Secret** for flightctl enrollment
+
+The cloud-init Secret is generated, not committed. The playbook requests a fresh enrollment certificate with `flightctl certificate request`, renders the cloud-config to a temporary file, creates the Secret from it, and deletes the temporary file — so the enrollment private key never lands in the working tree. You must be logged in to the edge manager first:
+
+```bash
+flightctl login <edge-manager-url>
+```
+
+The Secret is only generated when it does not already exist. To rotate it with a newly signed certificate:
+
+```bash
+ansible-playbook ansible/deploy-remote-sensor-vm.yaml -e regenerate_cloudinit=true
+```
 
 ## flightctl fleet management (edge devices)
 
